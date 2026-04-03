@@ -1,0 +1,7 @@
+<resources>
+    <style name="Theme.PWMGen" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#040408</item>
+        <item name="android:statusBarColor">#040408</item>
+        <item name="android:navigationBarColor">#040408</item>
+    </style>
+</resources>

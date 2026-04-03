@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Raspberry Pi / RP2040 CDC Serial -->
+    <usb-device vendor-id="0x2E8A" />
+    <!-- Generic CDC ACM -->
+    <usb-device class="2" />
+</resources>

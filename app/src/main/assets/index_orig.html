@@ -1,0 +1,852 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>PWM GEN</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700&display=swap');
+
+:root {
+  --bg:       #040408;
+  --grid:     #0a0f1a;
+  --gridline: #0d1525;
+  --border:   #1a2540;
+  --yellow:   #ffc300;
+  --blue:     #00aaff;
+  --green:    #00ff88;
+  --orange:   #ff6600;
+  --cyan:     #00ffee;
+  --dim:      #2a3550;
+  --sidebar:  38px;
+}
+
+* { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+
+body {
+  background: var(--bg);
+  color: var(--yellow);
+  font-family: 'Share Tech Mono', monospace;
+  height: 100dvh;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* ═══════════════ SIDEBAR ═══════════════ */
+.sidebar {
+  width: var(--sidebar);
+  min-width: var(--sidebar);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 0;
+  gap: 6px;
+  background: #060810;
+  border-right: 1px solid var(--border);
+  z-index: 10;
+}
+
+.sb-btn {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--dim);
+  border-radius: 4px;
+  background: #0a0f1a;
+  color: var(--yellow);
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 8px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.1;
+  text-align: center;
+  transition: all 0.15s;
+  position: relative;
+}
+.sb-btn span { font-size: 9px; font-weight: bold; }
+.sb-btn sub  { font-size: 7px; color: var(--dim); }
+
+.sb-btn.active {
+  border-color: var(--blue);
+  background: #001a33;
+  color: var(--blue);
+  box-shadow: 0 0 8px #00aaff44;
+}
+.sb-btn.active sub { color: var(--blue); opacity: 0.7; }
+
+.sb-btn.ch3-btn { }
+.sb-btn.pct-btn { }
+.sb-btn.ph-btn  { }
+
+.sb-sep {
+  width: 24px;
+  height: 1px;
+  background: var(--border);
+  margin: 2px 0;
+}
+
+/* ═══════════════ MAIN AREA ═══════════════ */
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ═══════════════ SCOPE ═══════════════ */
+.scope-wrap {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+canvas#scope {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* Freq display overlay — top of scope */
+.freq-bar {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  background: linear-gradient(to bottom, #060810ee, transparent);
+  z-index: 5;
+  pointer-events: none;
+}
+.freq-label {
+  font-size: 9px;
+  color: var(--dim);
+  letter-spacing: 1px;
+}
+.freq-digits {
+  display: flex;
+  gap: 1px;
+  pointer-events: all;
+}
+.freq-digit {
+  width: 14px;
+  height: 20px;
+  border: 1px solid var(--dim);
+  border-radius: 2px;
+  background: #0a0f1a;
+  color: var(--yellow);
+  font-family: 'Orbitron', monospace;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.freq-digit.active {
+  border-color: var(--blue);
+  color: var(--blue);
+  background: #001a33;
+  box-shadow: 0 0 6px #00aaff66;
+}
+.freq-unit {
+  font-size: 9px;
+  color: var(--dim);
+  margin-left: 2px;
+}
+
+/* CH labels on scope */
+.ch-labels {
+  position: absolute;
+  left: 4px;
+  top: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  z-index: 5;
+  pointer-events: none;
+}
+.ch-label {
+  font-size: 9px;
+  padding: 1px 4px;
+  border-left: 2px solid;
+}
+.ch-label.ch1 { color: var(--green);  border-color: var(--green);  }
+.ch-label.ch2 { color: var(--orange); border-color: var(--orange); }
+.ch-label.ch3 { color: var(--blue);   border-color: var(--blue);   }
+
+/* ═══════════════ CONTROL PANEL ═══════════════ */
+.ctrl-panel {
+  background: #060810;
+  border-top: 1px solid var(--border);
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Slider row */
+.slider-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.slider-name {
+  font-size: 9px;
+  color: var(--dim);
+  width: 20px;
+  letter-spacing: 1px;
+}
+.slider-val {
+  font-family: 'Orbitron', monospace;
+  font-size: 14px;
+  color: var(--yellow);
+  min-width: 56px;
+  text-align: right;
+}
+.slider-unit {
+  font-size: 8px;
+  color: var(--dim);
+  width: 22px;
+}
+input[type=range] {
+  flex: 1;
+  -webkit-appearance: none;
+  height: 3px;
+  background: var(--gridline);
+  border-radius: 2px;
+  outline: none;
+}
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--yellow);
+  cursor: pointer;
+  border: 2px solid var(--bg);
+  box-shadow: 0 0 6px var(--yellow);
+}
+input[type=range].blue-slider::-webkit-slider-thumb {
+  background: var(--blue);
+  box-shadow: 0 0 6px var(--blue);
+}
+
+/* Step buttons */
+.step-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.step-label {
+  font-size: 8px;
+  color: var(--dim);
+  width: 20px;
+}
+.step-btn {
+  flex: 1;
+  height: 22px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: #0a0f1a;
+  color: var(--dim);
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 9px;
+  cursor: pointer;
+  transition: all 0.1s;
+}
+.step-btn.active {
+  border-color: var(--yellow);
+  color: var(--yellow);
+  background: #1a1400;
+}
+
+/* Status bar */
+.status-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 3px 8px;
+  background: #040408;
+  border-top: 1px solid var(--border);
+  font-size: 9px;
+}
+.status-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: #ff3333;
+  display: inline-block;
+  margin-right: 4px;
+}
+.status-dot.on { background: var(--green); box-shadow: 0 0 4px var(--green); }
+
+/* Digit selector popup */
+.digit-popup {
+  position: fixed;
+  z-index: 100;
+  background: #0d1525;
+  border: 1px solid var(--blue);
+  border-radius: 6px;
+  padding: 8px;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  box-shadow: 0 0 20px #00aaff33;
+}
+.digit-popup.show { display: flex; }
+.digit-popup-val {
+  font-family: 'Orbitron', monospace;
+  font-size: 18px;
+  color: var(--blue);
+  width: 14px;
+  text-align: center;
+}
+.digit-arrow {
+  width: 32px; height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #0a0f1a;
+  color: var(--blue);
+  font-size: 16px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+</style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<div class="sidebar">
+  <!-- CH1/CH2 button -->
+  <div class="sb-btn active" id="btn-ch12" onclick="selectMode('ch12')">
+    <span>CH</span>
+    <sub>1/2</sub>
+  </div>
+
+  <div class="sb-sep"></div>
+
+  <!-- CH3 button -->
+  <div class="sb-btn" id="btn-ch3" onclick="selectMode('ch3')">
+    <span>CH</span>
+    <sub>3</sub>
+  </div>
+
+  <!-- Duty % button -->
+  <div class="sb-btn pct-btn" id="btn-duty" onclick="selectMode('duty')">
+    <span style="font-size:13px">%</span>
+  </div>
+
+  <div class="sb-sep"></div>
+
+  <!-- CH3 params button -->
+  <div class="sb-btn ph-btn" id="btn-ch3p" onclick="selectMode('ch3p')">
+    <span>⋮⋮</span>
+    <sub>PH</sub>
+  </div>
+
+  <!-- Connect -->
+  <div style="flex:1"></div>
+  <div class="sb-btn" onclick="connectUSB()" style="font-size:7px; line-height:1.2;">
+    <span>USB</span>
+    <sub id="conn-sub">OFF</sub>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div class="main">
+
+  <!-- SCOPE -->
+  <div class="scope-wrap" id="scope-wrap">
+    <canvas id="scope"></canvas>
+
+    <!-- Freq bar -->
+    <div class="freq-bar" id="freq-bar">
+      <span class="freq-label" id="freq-bar-label">F:</span>
+      <div class="freq-digits" id="freq-digits"></div>
+      <span class="freq-unit" id="freq-unit">Hz</span>
+    </div>
+
+    <!-- CH labels -->
+    <div class="ch-labels" id="ch-labels">
+      <div class="ch-label ch1" id="lbl-ch1">CH1</div>
+      <div class="ch-label ch2" id="lbl-ch2">CH2</div>
+      <div class="ch-label ch3" id="lbl-ch3">CH3</div>
+    </div>
+  </div>
+
+  <!-- CONTROL PANEL -->
+  <div class="ctrl-panel" id="ctrl-panel">
+
+    <!-- CH1/CH2 controls -->
+    <div id="panel-ch12">
+      <div class="slider-row">
+        <span class="slider-name">FREQ</span>
+        <input type="range" id="sl-freq" min="100" max="500000" value="20000"
+               oninput="onSlider('freq',this.value)">
+        <span class="slider-val" id="sv-freq">20000</span>
+        <span class="slider-unit">Hz</span>
+      </div>
+      <div class="step-row">
+        <span class="step-label">STEP</span>
+        <button class="step-btn active" onclick="setStep('freq',10,this)">10</button>
+        <button class="step-btn" onclick="setStep('freq',100,this)">100</button>
+        <button class="step-btn" onclick="setStep('freq',1000,this)">1к</button>
+        <button class="step-btn" onclick="setStep('freq',10000,this)">10к</button>
+        <button class="step-btn" onclick="setStep('freq',50000,this)">50к</button>
+      </div>
+    </div>
+
+    <!-- Duty controls (shared) -->
+    <div id="panel-duty" style="display:none">
+      <div class="slider-row">
+        <span class="slider-name">DUTY</span>
+        <input type="range" id="sl-duty" min="1" max="99" value="50" class="blue-slider"
+               oninput="onSlider('duty',this.value)">
+        <span class="slider-val" id="sv-duty" style="color:var(--blue)">50</span>
+        <span class="slider-unit">%</span>
+      </div>
+      <div class="step-row">
+        <span class="step-label">STEP</span>
+        <button class="step-btn active" onclick="setStep('duty',1,this)">1%</button>
+        <button class="step-btn" onclick="setStep('duty',10,this)">10%</button>
+      </div>
+    </div>
+
+    <!-- CH3 freq controls -->
+    <div id="panel-ch3" style="display:none">
+      <div class="slider-row">
+        <span class="slider-name" style="color:var(--blue)">FREQ</span>
+        <input type="range" id="sl-f3" min="500000" max="10000000" value="1000000" class="blue-slider"
+               oninput="onSlider('f3',this.value)">
+        <span class="slider-val" id="sv-f3" style="color:var(--blue)">1M</span>
+        <span class="slider-unit">Hz</span>
+      </div>
+      <div class="step-row">
+        <span class="step-label">STEP</span>
+        <button class="step-btn active" onclick="setStep('f3',100000,this)">100к</button>
+        <button class="step-btn" onclick="setStep('f3',500000,this)">500к</button>
+        <button class="step-btn" onclick="setStep('f3',1000000,this)">1М</button>
+        <button class="step-btn" onclick="setStep('f3',5000000,this)">5М</button>
+      </div>
+    </div>
+
+    <!-- CH3 phase/count controls -->
+    <div id="panel-ch3p" style="display:none">
+      <div class="slider-row">
+        <span class="slider-name" style="color:var(--cyan);font-size:8px">PHS</span>
+        <input type="range" id="sl-ph" min="0" max="99" value="0" class="blue-slider"
+               oninput="onSlider('ph',this.value)">
+        <span class="slider-val" id="sv-ph" style="color:var(--cyan)">0</span>
+        <span class="slider-unit">%</span>
+      </div>
+      <div class="slider-row">
+        <span class="slider-name" style="color:var(--cyan);font-size:8px">CNT</span>
+        <input type="range" id="sl-n3" min="1" max="10" value="5" class="blue-slider"
+               oninput="onSlider('n3',this.value)">
+        <span class="slider-val" id="sv-n3" style="color:var(--cyan)">5</span>
+        <span class="slider-unit">имп</span>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- STATUS BAR -->
+  <div class="status-bar">
+    <div><span class="status-dot" id="status-dot"></span><span id="status-txt">OFFLINE</span></div>
+    <div style="color:var(--dim);font-size:8px" id="vals-summary">
+      CH1/2: 20kHz 50% | CH3: 1MHz 50% ×5 φ0%
+    </div>
+  </div>
+</div>
+
+<!-- Digit popup -->
+<div class="digit-popup" id="digit-popup">
+  <div class="digit-arrow" id="dp-up" onclick="digitChange(1)">▲</div>
+  <div class="digit-popup-val" id="dp-val">0</div>
+  <div class="digit-arrow" onclick="digitChange(-1)">▼</div>
+</div>
+
+<script>
+// ─── State ───
+const S = {
+  freq: 20000, duty: 50,
+  f3: 1000000, d3: 50, n3: 5, ph: 0
+};
+const steps = { freq:10, duty:1, f3:100000, n3:1, ph:1 };
+
+let currentMode = 'ch12';
+let connected = false;
+let port = null, writer = null;
+
+// ─── Mode switching ───
+function selectMode(m) {
+  currentMode = m;
+  ['ch12','ch3','duty','ch3p'].forEach(id => {
+    const el = document.getElementById('panel-'+id);
+    if (el) el.style.display = 'none';
+  });
+  ['ch12','ch3','duty','ch3p'].forEach(id => {
+    const btn = document.getElementById('btn-'+id);
+    if (btn) btn.classList.remove('active');
+  });
+
+  // Show panel
+  if (m === 'ch12') {
+    document.getElementById('panel-ch12').style.display = 'block';
+    document.getElementById('btn-ch12').classList.add('active');
+    updateFreqBar('F:', S.freq, 'Hz');
+  } else if (m === 'ch3') {
+    document.getElementById('panel-ch3').style.display = 'block';
+    document.getElementById('btn-ch3').classList.add('active');
+    updateFreqBar('F3:', S.f3, 'Hz');
+  } else if (m === 'duty') {
+    document.getElementById('panel-duty').style.display = 'block';
+    document.getElementById('btn-duty').classList.add('active');
+    updateFreqBar('D:', S.duty, '%');
+  } else if (m === 'ch3p') {
+    document.getElementById('panel-ch3p').style.display = 'block';
+    document.getElementById('btn-ch3p').classList.add('active');
+    updateFreqBar('PH:', S.ph, '%');
+  }
+  drawScope();
+}
+
+// ─── Freq digit bar ───
+let activeDigitIdx = -1;
+
+function updateFreqBar(label, value, unit) {
+  document.getElementById('freq-bar-label').textContent = label;
+  document.getElementById('freq-unit').textContent = unit;
+  const s = String(value).padStart(6, '0');
+  const cont = document.getElementById('freq-digits');
+  cont.innerHTML = '';
+  for (let i = 0; i < s.length; i++) {
+    const d = document.createElement('div');
+    d.className = 'freq-digit' + (i === activeDigitIdx ? ' active' : '');
+    d.textContent = s[i];
+    d.dataset.idx = i;
+    d.dataset.len = s.length;
+    d.onclick = () => openDigitPopup(i, s.length, label, unit);
+    cont.appendChild(d);
+  }
+}
+
+function openDigitPopup(idx, len, label, unit) {
+  activeDigitIdx = idx;
+  updateFreqBar(label, getCurrentVal(), unit);
+  const popup = document.getElementById('digit-popup');
+  const digits = document.getElementById('freq-digits');
+  const digit = digits.children[idx];
+  const r = digit.getBoundingClientRect();
+  popup.style.left = Math.min(r.left - 10, window.innerWidth - 60) + 'px';
+  popup.style.top = (r.bottom + 4) + 'px';
+  document.getElementById('dp-val').textContent = digit.textContent;
+  popup.classList.add('show');
+
+  // Close on outside tap
+  setTimeout(() => {
+    document.addEventListener('click', closePopupOutside, {once:true});
+  }, 100);
+}
+
+function closePopupOutside(e) {
+  const popup = document.getElementById('digit-popup');
+  if (!popup.contains(e.target)) {
+    popup.classList.remove('show');
+    activeDigitIdx = -1;
+    refreshFreqBar();
+  }
+}
+
+function getCurrentVal() {
+  if (currentMode === 'ch12') return S.freq;
+  if (currentMode === 'ch3') return S.f3;
+  if (currentMode === 'duty') return S.duty;
+  if (currentMode === 'ch3p') return S.ph;
+  return 0;
+}
+
+function setCurrentVal(v) {
+  if (currentMode === 'ch12') { S.freq = v; document.getElementById('sl-freq').value = v; document.getElementById('sv-freq').textContent = v; sendCmd('F1', v); }
+  if (currentMode === 'ch3')  { S.f3 = v;   document.getElementById('sl-f3').value = v;   document.getElementById('sv-f3').textContent = fmtHz(v); sendCmd('F3', v); }
+  if (currentMode === 'duty') { S.duty = v;  document.getElementById('sl-duty').value = v; document.getElementById('sv-duty').textContent = v; sendCmd('D1', v); sendCmd('D3', v); }
+  if (currentMode === 'ch3p') { S.ph = v;    document.getElementById('sl-ph').value = v;   document.getElementById('sv-ph').textContent = v; sendCmd('P3', v); }
+  drawScope(); updateSummary();
+}
+
+function digitChange(dir) {
+  if (activeDigitIdx < 0) return;
+  const s = String(getCurrentVal()).padStart(6, '0');
+  const place = Math.pow(10, s.length - 1 - activeDigitIdx);
+  let newVal = getCurrentVal() + dir * place;
+
+  // Clamp
+  if (currentMode === 'ch12') newVal = Math.max(100, Math.min(500000, newVal));
+  if (currentMode === 'ch3')  newVal = Math.max(500000, Math.min(10000000, newVal));
+  if (currentMode === 'duty') newVal = Math.max(1, Math.min(99, newVal));
+  if (currentMode === 'ch3p') newVal = Math.max(0, Math.min(99, newVal));
+
+  setCurrentVal(newVal);
+  const newS = String(newVal).padStart(6, '0');
+  document.getElementById('dp-val').textContent = newS[activeDigitIdx];
+  refreshFreqBar();
+}
+
+function refreshFreqBar() {
+  const labels = {ch12:'F:', ch3:'F3:', duty:'D:', ch3p:'PH:'};
+  const units  = {ch12:'Hz', ch3:'Hz', duty:'%', ch3p:'%'};
+  updateFreqBar(labels[currentMode]||'', getCurrentVal(), units[currentMode]||'');
+}
+
+// ─── Sliders ───
+function onSlider(param, val) {
+  val = parseInt(val);
+  if (param === 'freq') { S.freq = val; document.getElementById('sv-freq').textContent = val; sendCmd('F1', val); refreshFreqBar(); }
+  if (param === 'duty') { S.duty = val; document.getElementById('sv-duty').textContent = val; sendCmd('D1', val); sendCmd('D3', val); }
+  if (param === 'f3')   { S.f3 = val;   document.getElementById('sv-f3').textContent = fmtHz(val); sendCmd('F3', val); refreshFreqBar(); }
+  if (param === 'ph')   { S.ph = val;   document.getElementById('sv-ph').textContent = val; sendCmd('P3', val); }
+  if (param === 'n3')   { S.n3 = val;   document.getElementById('sv-n3').textContent = val; sendCmd('N3', val); }
+  drawScope(); updateSummary();
+}
+
+function setStep(param, val, btn) {
+  steps[param] = val;
+  btn.parentElement.querySelectorAll('.step-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+function fmtHz(v) {
+  if (v >= 1000000) return (v/1000000).toFixed(1) + 'M';
+  if (v >= 1000) return (v/1000).toFixed(0) + 'k';
+  return v;
+}
+
+function updateSummary() {
+  document.getElementById('vals-summary').textContent =
+    `CH1/2: ${fmtHz(S.freq)}Hz ${S.duty}% | CH3: ${fmtHz(S.f3)}Hz ×${S.n3} φ${S.ph}%`;
+}
+
+// ─── Oscilloscope ───
+let phaseGesture = false;
+let phaseStartX = 0;
+let phaseStartVal = 0;
+
+function initScopeGesture() {
+  const wrap = document.getElementById('scope-wrap');
+  wrap.addEventListener('touchstart', e => {
+    phaseGesture = true;
+    phaseStartX = e.touches[0].clientX;
+    phaseStartVal = S.ph;
+  }, {passive:true});
+  wrap.addEventListener('touchmove', e => {
+    if (!phaseGesture) return;
+    const dx = e.touches[0].clientX - phaseStartX;
+    const W = wrap.offsetWidth;
+    const delta = Math.round(dx / W * 100);
+    S.ph = Math.max(0, Math.min(99, phaseStartVal + delta));
+    document.getElementById('sl-ph').value = S.ph;
+    document.getElementById('sv-ph').textContent = S.ph;
+    sendCmd('P3', S.ph);
+    refreshFreqBar();
+    drawScope();
+  }, {passive:true});
+  wrap.addEventListener('touchend', () => { phaseGesture = false; });
+}
+
+function drawScope() {
+  const canvas = document.getElementById('scope');
+  const wrap = document.getElementById('scope-wrap');
+  const W = wrap.offsetWidth * devicePixelRatio;
+  const H = wrap.offsetHeight * devicePixelRatio;
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+
+  // Background
+  ctx.fillStyle = '#020208';
+  ctx.fillRect(0,0,W,H);
+
+  // Grid
+  const gx = 10, gy = 6;
+  ctx.strokeStyle = '#0a1020';
+  ctx.lineWidth = 1;
+  for (let i=0; i<=gx; i++) { const x=i*W/gx; ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
+  for (let i=0; i<=gy; i++) { const y=i*H/gy; ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
+
+  // Center lines
+  ctx.strokeStyle = '#0d1a2a';
+  ctx.lineWidth = 1;
+  [H/6, H/2, H*5/6].forEach(y => {
+    ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke();
+  });
+
+  const rowH = H / 3;
+  const pad = rowH * 0.12;
+
+  function pwmWave(ctx, yTop, duty, color, cycles=4, phaseShift=0) {
+    const hi = yTop + pad;
+    const lo = yTop + rowH - pad;
+    const cw = W / cycles;
+    const phOff = phaseShift * cw;
+
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2 * devicePixelRatio;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 4 * devicePixelRatio;
+    ctx.beginPath();
+
+    for (let i = -1; i < cycles + 1; i++) {
+      const x0 = i * cw + phOff;
+      const hiW = cw * duty / 100;
+
+      if (i === -1) ctx.moveTo(x0, lo);
+      ctx.lineTo(x0, lo);
+      ctx.lineTo(x0, hi);
+      ctx.lineTo(x0 + hiW, hi);
+      ctx.lineTo(x0 + hiW, lo);
+      ctx.lineTo(x0 + cw, lo);
+    }
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
+
+  function burstWave(ctx, yTop, duty, color, count, phase, cycles=4) {
+    const hi = yTop + pad;
+    const lo = yTop + rowH - pad;
+    const cw = W / cycles;
+    const phOff = phase / 100 * cw;
+
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2 * devicePixelRatio;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 4 * devicePixelRatio;
+    ctx.beginPath();
+
+    for (let i = 0; i < cycles; i++) {
+      const x0 = i * cw;
+      const bx = x0 + phOff;
+      const impW = (cw * 0.5) / count;
+      const hiW = impW * duty / 100;
+
+      ctx.moveTo(x0, lo);
+      ctx.lineTo(bx, lo);
+
+      for (let j = 0; j < count; j++) {
+        const ix = bx + j * impW;
+        ctx.lineTo(ix, lo);
+        ctx.lineTo(ix, hi);
+        ctx.lineTo(ix + hiW, hi);
+        ctx.lineTo(ix + hiW, lo);
+      }
+      ctx.lineTo(x0 + cw, lo);
+    }
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
+
+  // Clip to canvas bounds
+  ctx.save();
+  ctx.rect(0, 0, W, H);
+  ctx.clip();
+
+  pwmWave(ctx, 0,        S.duty, '#00ff88');
+  pwmWave(ctx, rowH,     S.duty, '#ff6600', 4, 0.5);
+  burstWave(ctx, rowH*2, S.d3,   '#00aaff', S.n3, S.ph);
+
+  ctx.restore();
+
+  // CH labels with values
+  const lh = rowH / 3;
+  ctx.font = (9 * devicePixelRatio) + 'px Share Tech Mono';
+  [ ['CH1', '#00ff88', 0,       `${fmtHz(S.freq)}Hz ${S.duty}%`],
+    ['CH2', '#ff6600', rowH,    `${fmtHz(S.freq)}Hz ${S.duty}%`],
+    ['CH3', '#00aaff', rowH*2,  `${fmtHz(S.f3)}Hz ×${S.n3} φ${S.ph}%`]
+  ].forEach(([name, color, y, info]) => {
+    ctx.fillStyle = color + '99';
+    ctx.fillRect(0, y, W, 1);
+    ctx.fillStyle = color;
+    ctx.fillText(name + ' ' + info, 4 * devicePixelRatio, y + 12 * devicePixelRatio);
+  });
+}
+
+// ─── USB Serial ───
+async function connectUSB() {
+  try {
+    port = await navigator.serial.requestPort();
+    await port.open({ baudRate: 115200 });
+    writer = port.writable.getWriter();
+    connected = true;
+    document.getElementById('status-dot').classList.add('on');
+    document.getElementById('status-txt').textContent = 'ONLINE';
+    document.getElementById('conn-sub').textContent = 'ON';
+    readLoop();
+    setTimeout(() => sendRaw('GET\n'), 300);
+  } catch(e) {
+    document.getElementById('status-txt').textContent = 'ERR';
+  }
+}
+
+async function readLoop() {
+  const reader = port.readable.getReader();
+  let buf = '';
+  try {
+    while (true) {
+      const {value, done} = await reader.read();
+      if (done) break;
+      buf += new TextDecoder().decode(value);
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      lines.forEach(l => {
+        try {
+          const d = JSON.parse(l.trim());
+          if (d.f1 !== undefined) {
+            S.freq = d.f1; S.duty = d.d1;
+            S.f3 = d.f3; S.d3 = d.d3;
+            S.n3 = d.n3; S.ph = d.p3;
+            document.getElementById('sl-freq').value = S.freq;
+            document.getElementById('sl-duty').value = S.duty;
+            document.getElementById('sl-f3').value = S.f3;
+            document.getElementById('sl-ph').value = S.ph;
+            document.getElementById('sl-n3').value = S.n3;
+            document.getElementById('sv-freq').textContent = S.freq;
+            document.getElementById('sv-duty').textContent = S.duty;
+            document.getElementById('sv-f3').textContent = fmtHz(S.f3);
+            document.getElementById('sv-ph').textContent = S.ph;
+            document.getElementById('sv-n3').textContent = S.n3;
+            drawScope(); updateSummary(); refreshFreqBar();
+          }
+        } catch(e) {}
+      });
+    }
+  } catch(e) {
+    connected = false;
+    document.getElementById('status-dot').classList.remove('on');
+    document.getElementById('status-txt').textContent = 'OFFLINE';
+  }
+}
+
+function sendCmd(key, val) {
+  sendRaw(key + ':' + val + '\n');
+}
+function sendRaw(s) {
+  if (!writer) return;
+  writer.write(new TextEncoder().encode(s));
+}
+
+// ─── Init ───
+window.addEventListener('load', () => {
+  updateFreqBar('F:', S.freq, 'Hz');
+  updateSummary();
+  initScopeGesture();
+  const ro = new ResizeObserver(() => drawScope());
+  ro.observe(document.getElementById('scope-wrap'));
+  drawScope();
+});
+</script>
+</body>
+</html>
