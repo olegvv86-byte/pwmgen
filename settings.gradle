@@ -1,0 +1,3 @@
+rootProject.name = "PWM Generator"
+include ':app'
+include ':app'
