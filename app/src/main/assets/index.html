@@ -783,10 +783,18 @@ window.onUsbEvent = function(event) {
     document.getElementById('status-dot').classList.add('on');
     document.getElementById('status-txt').textContent = 'ONLINE';
     document.getElementById('conn-sub').textContent = 'ON';
-    // Запрашиваем статус
-    setTimeout(() => sendRaw('GET\n'), 300);
+    // Запрашиваем статус несколько раз
+    setTimeout(() => sendRaw('GET\n'), 500);
+    setTimeout(() => sendRaw('GET\n'), 1500);
+    setTimeout(() => sendRaw('GET\n'), 3000);
+    // Периодический запрос каждые 2 секунды
+    if (window._statusInterval) clearInterval(window._statusInterval);
+    window._statusInterval = setInterval(() => {
+      if (connected) sendRaw('GET\n');
+    }, 2000);
   } else if (event === 'disconnected') {
     connected = false;
+    if (window._statusInterval) clearInterval(window._statusInterval);
     document.getElementById('status-dot').classList.remove('on');
     document.getElementById('status-txt').textContent = 'OFFLINE';
     document.getElementById('conn-sub').textContent = 'OFF';
@@ -810,7 +818,9 @@ window.onUsbEvent = function(event) {
         document.getElementById('sv-n3').textContent   = S.n3;
         drawScope(); updateSummary(); refreshFreqBar();
       }
-    } catch(e) {}
+    } catch(e) {
+      console.log('Parse error:', e, 'line:', line);
+    }
   } else if (event.startsWith('error:')) {
     console.log('USB error: ' + event.substring(6));
   }
