@@ -836,7 +836,9 @@ async function connectUSB() {
 }
 
 function sendCmd(key, val) {
-  sendRaw(key + ':' + val + '\n');
+    var cmd = key + ':' + val + '\n';
+    document.getElementById('status-txt').textContent = 'TX:' + cmd;
+    sendRaw(cmd);
 }
 
 function sendRaw(s) {
