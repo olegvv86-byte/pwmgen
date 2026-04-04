@@ -840,7 +840,7 @@ function sendCmd(key, val) {
 }
 
 function sendRaw(s) {
-  if (typeof AndroidUSB !== 'undefined' && AndroidUSB.isConnected()) {
+  if (typeof AndroidUSB !== 'undefined') {
     AndroidUSB.send(s);
   }
 }
