@@ -72,9 +72,12 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void send(String data) {
+            if (serialPort == null) return;
             try {
-                sendSerial(data);
-            } catch (Exception e) {}
+                serialPort.write(data.getBytes(), 1000);
+            } catch (Exception e) {
+                mainHandler.post(() -> notifyJs("error:" + e.getMessage()));
+            }
         }
 
         @JavascriptInterface
@@ -259,4 +262,5 @@ public class MainActivity extends Activity {
         else super.onBackPressed();
     }
 }
+
 
