@@ -89,30 +89,63 @@ public class MainActivity extends Activity {
     }
 
     private String connectUsb() {
-        List<UsbSerialDriver> drivers =
-            UsbSerialProber.getDefaultProber().findAllDrivers(usbManager);
+        // Ищем любое CDC устройство напрямую
+        UsbDevice foundDevice = null;
+        for (UsbDevice device : usbManager.getDeviceList().values()) {
+            // Vendor ID Waveshare/RP2040
+            if (device.getVendorId() == 0x2E8A || 
+                device.getVendorId() == 0x239A ||
+                device.getDeviceClass() == 2 ||
+                device.getDeviceClass() == 0) {
+                foundDevice = device;
+                break;
+            }
+        }
 
-        if (drivers.isEmpty()) {
+        if (foundDevice == null) {
+            // Берём первое доступное устройство
+            for (UsbDevice device : usbManager.getDeviceList().values()) {
+                foundDevice = device;
+                break;
+            }
+        }
+
+        if (foundDevice == null) {
             return "NO_DEVICE";
         }
 
-        UsbSerialDriver driver = drivers.get(0);
-        UsbDevice device = driver.getDevice();
-
-        if (!usbManager.hasPermission(device)) {
+        if (!usbManager.hasPermission(foundDevice)) {
             PendingIntent pi = PendingIntent.getBroadcast(
                 this, 0,
                 new Intent(ACTION_USB_PERMISSION),
                 PendingIntent.FLAG_MUTABLE
             );
-            usbManager.requestPermission(device, pi);
+            usbManager.requestPermission(foundDevice, pi);
             return "REQUESTING_PERMISSION";
         }
 
-        try {
-            UsbDeviceConnection connection = usbManager.openDevice(device);
-            if (connection == null) return "OPEN_FAILED";
+        List<UsbSerialDriver> drivers =
+            UsbSerialProber.getDefaultProber().findAllDrivers(usbManager);
 
+        UsbSerialDriver driver = null;
+        if (!drivers.isEmpty()) {
+            driver = drivers.get(0);
+        }
+
+        if (driver == null) {
+            // Пробуем CdcAcmSerialDriver напрямую
+            try {
+                UsbDeviceConnection connection = usbManager.openDevice(foundDevice);
+                if (connection == null) return "OPEN_FAILED";
+                driver = new com.hoho.android.usbserial.driver.CdcAcmSerialDriver(foundDevice);
+            } catch (Exception e) {
+                return "DRIVER_ERROR: " + e.getMessage();
+            }
+        }
+
+        try {
+            UsbDeviceConnection connection = usbManager.openDevice(driver.getDevice());
+            if (connection == null) return "OPEN_FAILED";
             serialPort = driver.getPorts().get(0);
             serialPort.open(connection);
             serialPort.setParameters(BAUD_RATE, 8,
@@ -226,3 +259,4 @@ public class MainActivity extends Activity {
         else super.onBackPressed();
     }
 }
+
