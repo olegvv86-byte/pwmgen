@@ -274,7 +274,7 @@ input[type=range].cyan::-webkit-slider-thumb { background: var(--cyan); box-shad
     <div id="panel-duty" style="display:none">
       <div class="slider-row">
         <span class="sl-name" style="color:var(--blue)">DUTY</span>
-        <input type="range" id="sl-duty" min="1" max="99" value="50" class="blue"
+        <input type="range" id="sl-duty" min="1" max="50" value="50" class="blue"
                oninput="onDutySlider(this.value)">
         <span class="sl-val" id="sv-duty" style="color:var(--blue)">50</span>
         <span class="sl-unit">%</span>
@@ -422,7 +422,7 @@ function setCurVal(v) {
     document.getElementById('sl-duty').value = v;
     document.getElementById('sv-duty').textContent = v;
     document.getElementById('duty-top-val').textContent = v;
-    sendRaw('D1:'+v+'\n');
+    sendRaw('D1:'+(v*2)+'\n');
   } else if (currentMode === 'ch3') {
     S.f3 = v;
     document.getElementById('sl-f3').value = v;
@@ -922,7 +922,7 @@ window.onUsbEvent = function(event) {
     try {
       const d = JSON.parse(event.substring(5).trim());
       if (d.f1 !== undefined) {
-        S.freq=d.f1; S.duty=d.d1; S.f3=d.f3; S.d3=d.d3; S.n3=d.n3; S.ph=d.p3;
+        S.freq=d.f1; S.duty=Math.round(d.d1/2); S.f3=d.f3; S.d3=d.d3; S.n3=d.n3; S.ph=d.p3;
         if (d.x2 !== undefined && d.x2 !== (x2Active?1:0)) {
           x2Active = d.x2 === 1;
           const btn = document.getElementById('btn-ch3');
@@ -977,7 +977,7 @@ window.addEventListener('load', () => {
 
   // Отправка команд при отпускании ползунка
   addSliderSend('sl-freq', () => sendRaw('F1:'+S.freq+'\n'));
-  addSliderSend('sl-duty', () => sendRaw('D1:'+S.duty+'\n'));
+  addSliderSend('sl-duty', () => sendRaw('D1:'+(S.duty*2)+'\n'));
   addSliderSend('sl-f3',   () => sendRaw('F3:'+S.f3+'\n'));
   addSliderSend('sl-d3',   () => sendRaw('D3:'+S.d3+'\n'));
   addSliderSend('sl-ph',   () => sendRaw('P3:'+S.ph+'\n'));
