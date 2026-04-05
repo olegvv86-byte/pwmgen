@@ -222,6 +222,10 @@ input[type=range].cyan::-webkit-slider-thumb { background: var(--cyan); box-shad
   <div class="sb-btn" id="btn-ch3p" onclick="selectMode('ch3p')">
     <span>⋮⋮</span><sub>PH</sub>
   </div>
+  <div class="sb-sep"></div>
+  <div class="sb-btn" id="btn-zoom" onclick="toggleZoom()" title="CH3 на весь экран">
+    <span style="font-size:14px">⛶</span><sub>CH3</sub>
+  </div>
   <div style="flex:1"></div>
   <div class="sb-btn" onclick="connectUSB()" style="font-size:8px;">
     <span>USB</span><sub id="conn-sub">OFF</sub>
@@ -257,17 +261,9 @@ input[type=range].cyan::-webkit-slider-thumb { background: var(--cyan); box-shad
       <div class="slider-row">
         <span class="sl-name" style="color:var(--yellow)">FREQ</span>
         <input type="range" id="sl-freq" min="100" max="500000" value="20000"
-               oninput="onFreqSlider(this.value)" onchange="onFreqSlider(this.value)">
+               oninput="onFreqSlider(this.value)">
         <span class="sl-val" id="sv-freq" style="color:var(--yellow)">20000</span>
         <span class="sl-unit">Hz</span>
-      </div>
-      <div class="step-row">
-        <span class="step-label">STEP</span>
-        <button class="step-btn active" onclick="setStep('freq',10,this)">10</button>
-        <button class="step-btn" onclick="setStep('freq',100,this)">100</button>
-        <button class="step-btn" onclick="setStep('freq',1000,this)">1к</button>
-        <button class="step-btn" onclick="setStep('freq',10000,this)">10к</button>
-        <button class="step-btn" onclick="setStep('freq',50000,this)">50к</button>
       </div>
     </div>
 
@@ -275,15 +271,10 @@ input[type=range].cyan::-webkit-slider-thumb { background: var(--cyan); box-shad
     <div id="panel-duty" style="display:none">
       <div class="slider-row">
         <span class="sl-name" style="color:var(--blue)">DUTY</span>
-        <input type="range" id="sl-duty" min="1" max="99" value="50" class="blue"
-               oninput="onDutySlider(this.value)" onchange="onDutySlider(this.value)">
+        <input type="range" id="sl-duty" min="1" max="50" value="50" class="blue"
+               oninput="onDutySlider(this.value)">
         <span class="sl-val" id="sv-duty" style="color:var(--blue)">50</span>
         <span class="sl-unit">%</span>
-      </div>
-      <div class="step-row">
-        <span class="step-label">STEP</span>
-        <button class="step-btn active-blue" onclick="setStep('duty',1,this)">1%</button>
-        <button class="step-btn" onclick="setStep('duty',10,this)">10%</button>
       </div>
     </div>
 
@@ -292,16 +283,9 @@ input[type=range].cyan::-webkit-slider-thumb { background: var(--cyan); box-shad
       <div class="slider-row">
         <span class="sl-name" style="color:var(--cyan)">F3</span>
         <input type="range" id="sl-f3" min="500000" max="10000000" value="1000000" class="cyan"
-               oninput="onF3Slider(this.value)" onchange="onF3Slider(this.value)">
+               oninput="onF3Slider(this.value)">
         <span class="sl-val" id="sv-f3" style="color:var(--cyan)">1M</span>
         <span class="sl-unit">Hz</span>
-      </div>
-      <div class="step-row">
-        <span class="step-label">STEP</span>
-        <button class="step-btn active" onclick="setStep('f3',100000,this)">100к</button>
-        <button class="step-btn" onclick="setStep('f3',500000,this)">500к</button>
-        <button class="step-btn" onclick="setStep('f3',1000000,this)">1М</button>
-        <button class="step-btn" onclick="setStep('f3',5000000,this)">5М</button>
       </div>
     </div>
 
@@ -310,14 +294,9 @@ input[type=range].cyan::-webkit-slider-thumb { background: var(--cyan); box-shad
       <div class="slider-row">
         <span class="sl-name" style="color:var(--cyan)">D3</span>
         <input type="range" id="sl-d3" min="1" max="99" value="50" class="cyan"
-               oninput="onD3Slider(this.value)" onchange="onD3Slider(this.value)">
+               oninput="onD3Slider(this.value)">
         <span class="sl-val" id="sv-d3" style="color:var(--cyan)">50</span>
         <span class="sl-unit">%</span>
-      </div>
-      <div class="step-row">
-        <span class="step-label">STEP</span>
-        <button class="step-btn active" onclick="setStep('d3',1,this)">1%</button>
-        <button class="step-btn" onclick="setStep('d3',10,this)">10%</button>
       </div>
     </div>
 
@@ -326,14 +305,14 @@ input[type=range].cyan::-webkit-slider-thumb { background: var(--cyan); box-shad
       <div class="slider-row">
         <span class="sl-name" style="color:var(--cyan)">PHS</span>
         <input type="range" id="sl-ph" min="0" max="99" value="0" class="cyan"
-               oninput="onPhSlider(this.value)" onchange="onPhSlider(this.value)">
+               oninput="onPhSlider(this.value)">
         <span class="sl-val" id="sv-ph" style="color:var(--cyan)">0</span>
         <span class="sl-unit">%</span>
       </div>
       <div class="slider-row">
         <span class="sl-name" style="color:var(--cyan)">CNT</span>
         <input type="range" id="sl-n3" min="1" max="10" value="5" class="cyan"
-               oninput="onN3Slider(this.value)" onchange="onN3Slider(this.value)">
+               oninput="onN3Slider(this.value)">
         <span class="sl-val" id="sv-n3" style="color:var(--cyan)">5</span>
         <span class="sl-unit">шт</span>
       </div>
@@ -499,70 +478,58 @@ function digitChg(dir) {
   document.getElementById('dpval').textContent = newS[activeDigitIdx] || '0';
 }
 
-// ─── Sliders (no momentum - use onchange) ───
+// ─── Sliders - отправляем СРАЗУ при движении ───
 function onFreqSlider(v) {
-  v = snapToStep(parseInt(v), steps.freq);
+  v = parseInt(v);
   S.freq = v;
   document.getElementById('sv-freq').textContent = v;
   buildDigits(v, 'Hz');
   updateSum(); drawScope();
+  sendRaw('F1:'+v+'\n');
 }
-document.getElementById('sl-freq').addEventListener('change', function() {
-  sendRaw('F1:'+S.freq+'\n');
-});
 
 function onDutySlider(v) {
-  v = snapToStep(parseInt(v), steps.duty);
+  v = parseInt(v);
   S.duty = v;
   document.getElementById('sv-duty').textContent = v;
   document.getElementById('duty-top-val').textContent = v;
   buildDigits(v, '%');
   updateSum(); drawScope();
+  sendRaw('D1:'+v+'\n');
 }
-document.getElementById('sl-duty').addEventListener('change', function() {
-  sendRaw('D1:'+S.duty+'\n');
-});
 
 function onF3Slider(v) {
-  v = snapToStep(parseInt(v), steps.f3);
+  v = parseInt(v);
   S.f3 = v;
   document.getElementById('sv-f3').textContent = fmtHz(v);
   buildDigits(v, 'Hz');
   updateSum(); drawScope();
+  sendRaw('F3:'+v+'\n');
 }
-document.getElementById('sl-f3').addEventListener('change', function() {
-  sendRaw('F3:'+S.f3+'\n');
-});
 
 function onD3Slider(v) {
-  v = snapToStep(parseInt(v), steps.d3);
+  v = parseInt(v);
   S.d3 = v;
   document.getElementById('sv-d3').textContent = v;
   document.getElementById('duty-top-val').textContent = v;
   buildDigits(v, '%');
   updateSum(); drawScope();
+  sendRaw('D3:'+v+'\n');
 }
-document.getElementById('sl-d3').addEventListener('change', function() {
-  sendRaw('D3:'+S.d3+'\n');
-});
 
 function onPhSlider(v) {
   S.ph = parseInt(v);
   document.getElementById('sv-ph').textContent = v;
   updateSum(); drawScope();
-}
-document.getElementById('sl-ph').addEventListener('change', function() {
   sendRaw('P3:'+S.ph+'\n');
-});
+}
 
 function onN3Slider(v) {
   S.n3 = parseInt(v);
   document.getElementById('sv-n3').textContent = v;
   updateSum(); drawScope();
-}
-document.getElementById('sl-n3').addEventListener('change', function() {
   sendRaw('N3:'+S.n3+'\n');
-});
+}
 
 function snapToStep(v, step) { return Math.round(v / step) * step; }
 
@@ -615,6 +582,13 @@ function initGesture() {
       phGesture = false;
     }
   });
+}
+
+let zoomCH3 = false;
+function toggleZoom() {
+  zoomCH3 = !zoomCH3;
+  document.getElementById('btn-zoom').classList.toggle('active', zoomCH3);
+  drawScope();
 }
 
 function drawScope() {
@@ -702,12 +676,49 @@ function drawScope() {
   const cycles = 4;
   ctx.save(); ctx.rect(0,0,W,H); ctx.clip();
 
-  // CH1 — без сдвига
-  drawPWM(0,      S.duty, '#00ff88', cycles, 0);
-  // CH2 — противофаза 180° (сдвиг 0.5 периода)
-  drawPWM(rowH,   S.duty, '#ff6600', cycles, 0.5);
-  // CH3 — пачки с фазой
-  drawBurst(rowH*2, S.d3, '#00aaff', S.n3, S.ph, cycles);
+  if (zoomCH3) {
+    // Режим зума — CH3 на весь экран
+    const pad2 = H * 0.08;
+    const hi2 = pad2;
+    const lo2 = H - pad2;
+    const cw = W / cycles;
+    const phOff = S.ph / 100 * cw;
+    const freqRatio = S.f3 / S.freq;
+    const impW = Math.max(2, cw / freqRatio);
+    const hiW3 = impW * S.d3 / 100;
+
+    ctx.strokeStyle = '#00aaff'; ctx.lineWidth = 2.5 * devicePixelRatio;
+    ctx.shadowColor = '#00aaff'; ctx.shadowBlur = 4 * devicePixelRatio;
+    ctx.beginPath();
+    for (let i = 0; i < cycles; i++) {
+      const x0 = i * cw;
+      const bStart = x0 + phOff;
+      ctx.moveTo(x0, lo2);
+      ctx.lineTo(bStart, lo2);
+      for (let j = 0; j < S.n3; j++) {
+        const ix = bStart + j * impW;
+        if (ix < x0 + cw) {
+          ctx.lineTo(ix, lo2);
+          ctx.lineTo(ix, hi2);
+          ctx.lineTo(ix + hiW3, hi2);
+          ctx.lineTo(ix + hiW3, lo2);
+        }
+      }
+      ctx.lineTo(x0 + cw, lo2);
+    }
+    ctx.stroke(); ctx.shadowBlur = 0;
+
+    // Метка
+    ctx.fillStyle = '#00aaff';
+    ctx.font = (11*devicePixelRatio)+'px Share Tech Mono';
+    ctx.fillText('CH3 ZOOM | '+fmtHz(S.f3)+'Hz D:'+S.d3+'% ×'+S.n3+' φ'+S.ph+'%',
+      4*devicePixelRatio, 14*devicePixelRatio);
+  } else {
+    // Обычный режим — 3 канала
+    drawPWM(0,      S.duty, '#00ff88', cycles, 0);
+    drawPWM(rowH,   S.duty, '#ff6600', cycles, 0.5);
+    drawBurst(rowH*2, S.d3, '#00aaff', S.n3, S.ph, cycles);
+  }
 
   ctx.restore();
 
