@@ -212,8 +212,8 @@ input[type=range].cyan::-webkit-slider-thumb { background: var(--cyan); box-shad
     <span style="font-size:14px">%</span><sub>1/2</sub>
   </div>
   <div class="sb-sep"></div>
-  <div class="sb-btn" id="btn-ch3" onclick="selectMode('ch3')">
-    <span>CH</span><sub>3</sub>
+  <div class="sb-btn" id="btn-ch3" onclick="onCh3Tap()">
+    <span>CH</span><sub id="ch3-sub">3</sub>
   </div>
   <div class="sb-btn" id="btn-d3" onclick="selectMode('d3')">
     <span style="font-size:14px">%</span><sub>ch3</sub>
@@ -223,6 +223,9 @@ input[type=range].cyan::-webkit-slider-thumb { background: var(--cyan); box-shad
     <span>⋮⋮</span><sub>PH</sub>
   </div>
   <div class="sb-sep"></div>
+  <div class="sb-btn" id="btn-pll" onclick="togglePLL()" title="ФАПЧ">
+    <span style="font-size:9px">ФАП</span><sub id="pll-sub">ЧЧ</sub>
+  </div>
   <div class="sb-btn" id="btn-zoom" onclick="toggleZoom()" title="CH3 на весь экран">
     <span style="font-size:14px">⛶</span><sub>CH3</sub>
   </div>
@@ -302,18 +305,18 @@ input[type=range].cyan::-webkit-slider-thumb { background: var(--cyan); box-shad
 
     <!-- CH3 phase/count -->
     <div id="panel-ch3p" style="display:none">
-      <div class="slider-row">
-        <span class="sl-name" style="color:var(--cyan)">PHS</span>
+      <div class="slider-row" onclick="setCh3pActive('ph')" style="cursor:pointer">
+        <span class="sl-name" id="lbl-ph" style="color:var(--cyan)">PHS</span>
         <input type="range" id="sl-ph" min="0" max="99" value="0" class="cyan"
                oninput="onPhSlider(this.value)">
         <span class="sl-val" id="sv-ph" style="color:var(--cyan)">0</span>
         <span class="sl-unit">%</span>
       </div>
-      <div class="slider-row">
-        <span class="sl-name" style="color:var(--cyan)">CNT</span>
+      <div class="slider-row" onclick="setCh3pActive('n3')" style="cursor:pointer">
+        <span class="sl-name" id="lbl-n3" style="color:var(--dim)">CNT</span>
         <input type="range" id="sl-n3" min="1" max="10" value="5" class="cyan"
-               oninput="onN3Slider(this.value)">
-        <span class="sl-val" id="sv-n3" style="color:var(--cyan)">5</span>
+               oninput="onN3Slider(this.value)" style="pointer-events:none; opacity:0.4">
+        <span class="sl-val" id="sv-n3" style="color:var(--dim)">5</span>
         <span class="sl-unit">шт</span>
       </div>
     </div>
@@ -527,6 +530,51 @@ function addSliderSend(id, cmdFn) {
   el.addEventListener('mouseup', () => cmdFn());
 }
 
+let ch3pActive = 'ph';
+let x2Active = false;
+let ch3LastTap = 0;
+let pllActive = false;
+
+function togglePLL() {
+  pllActive = !pllActive;
+  sendRaw('PL:'+(pllActive?1:0)+'\n');
+  const btn = document.getElementById('btn-pll');
+  btn.classList.toggle('active', pllActive);
+  document.getElementById('pll-sub').textContent = pllActive ? 'ON' : 'ЧЧ';
+}
+
+function onCh3Tap() {
+  const now = Date.now();
+  if (now - ch3LastTap < 500) {
+    // Двойное нажатие — X2
+    x2Active = !x2Active;
+    sendRaw('X2:'+(x2Active?1:0)+'\n');
+    const btn = document.getElementById('btn-ch3');
+    btn.style.borderColor = x2Active ? 'var(--yellow)' : '';
+    btn.style.boxShadow = x2Active ? '0 0 10px var(--yellow)' : '';
+    document.getElementById('ch3-sub').textContent = x2Active ? '×2' : '3';
+    drawScope();
+  } else {
+    // Одиночное — переключаем режим
+    selectMode('ch3');
+  }
+  ch3LastTap = now;
+} // активный параметр: 'ph' или 'n3'
+
+function setCh3pActive(param) {
+  ch3pActive = param;
+  // PHS
+  document.getElementById('lbl-ph').style.color = param === 'ph' ? 'var(--cyan)' : 'var(--dim)';
+  document.getElementById('sv-ph').style.color = param === 'ph' ? 'var(--cyan)' : 'var(--dim)';
+  document.getElementById('sl-ph').style.pointerEvents = param === 'ph' ? 'auto' : 'none';
+  document.getElementById('sl-ph').style.opacity = param === 'ph' ? '1' : '0.4';
+  // CNT
+  document.getElementById('lbl-n3').style.color = param === 'n3' ? 'var(--cyan)' : 'var(--dim)';
+  document.getElementById('sv-n3').style.color = param === 'n3' ? 'var(--cyan)' : 'var(--dim)';
+  document.getElementById('sl-n3').style.pointerEvents = param === 'n3' ? 'auto' : 'none';
+  document.getElementById('sl-n3').style.opacity = param === 'n3' ? '1' : '0.4';
+}
+
 function snapToStep(v, step) { return Math.round(v / step) * step; }
 
 function setStep(param, val, btn) {
@@ -581,12 +629,19 @@ function initGesture() {
 }
 
 let zoomCH3 = false;
-let timeScale = 1.0;  // 1.0 = 5 периодов, 0.1 = 0.5 периода (zoom in)
+let timeScale = 1.0;
+let viewStart = 0;      // начало видимого окна в "единицах периода CH3"
 let pinchStartDist = 0;
 let pinchStartScale = 1.0;
+let pinchStartView = 0;
+let pinchCenterNorm = 0.5;
+let panStartX = 0;
+let panStartView = 0;
+let isPanning = false;
 
 function toggleZoom() {
   zoomCH3 = !zoomCH3;
+  viewStart = 0;
   document.getElementById('btn-zoom').classList.toggle('active', zoomCH3);
   drawScope();
 }
@@ -594,25 +649,32 @@ function toggleZoom() {
 function initGesture() {
   const wrap = document.getElementById('scope-wrap');
 
-  // Блокируем стандартный зум браузера
   wrap.addEventListener('touchmove', e => {
     if (e.touches.length >= 2) e.preventDefault();
   }, {passive: false});
 
-  // Pinch zoom для развёртки
   wrap.addEventListener('touchstart', e => {
     if (e.touches.length === 2) {
+      isPanning = false;
       const dx = e.touches[0].clientX - e.touches[1].clientX;
       const dy = e.touches[0].clientY - e.touches[1].clientY;
       pinchStartDist = Math.sqrt(dx*dx + dy*dy);
       pinchStartScale = timeScale;
+      pinchStartView = viewStart;
+      pinchCenterNorm = (e.touches[0].clientX + e.touches[1].clientX) / 2 / wrap.offsetWidth;
     } else if (e.touches.length === 1) {
-      const y = e.touches[0].clientY;
-      const h = wrap.offsetHeight;
-      if (y > h * 0.67 && !zoomCH3) {
-        phGesture = true;
-        phStartX = e.touches[0].clientX;
-        phStartVal = S.ph;
+      if (zoomCH3) {
+        isPanning = true;
+        panStartX = e.touches[0].clientX;
+        panStartView = viewStart;
+      } else {
+        const y = e.touches[0].clientY;
+        const h = wrap.offsetHeight;
+        if (y > h * 0.67) {
+          phGesture = true;
+          phStartX = e.touches[0].clientX;
+          phStartVal = S.ph;
+        }
       }
     }
   }, {passive:true});
@@ -622,22 +684,35 @@ function initGesture() {
       const dx = e.touches[0].clientX - e.touches[1].clientX;
       const dy = e.touches[0].clientY - e.touches[1].clientY;
       const dist = Math.sqrt(dx*dx + dy*dy);
-      timeScale = Math.max(0.05, Math.min(50, pinchStartScale * dist / pinchStartDist));
+      const newScale = Math.max(0.01, Math.min(500, pinchStartScale * dist / pinchStartDist));
+      // viewStart в долях ширины экрана
+      // точка под центром: worldPos = viewStart + pinchCenterNorm
+      // после zoom она должна остаться на том же месте экрана
+      const worldCenter = pinchStartView + pinchCenterNorm;
+      viewStart = worldCenter - pinchCenterNorm;
+      timeScale = newScale;
       drawScope();
-    } else if (phGesture && e.touches.length === 1) {
-      const dx = e.touches[0].clientX - phStartX;
-      const W = wrap.offsetWidth;
-      S.ph = Math.max(0, Math.min(99, phStartVal + Math.round(dx/W*100)));
-      document.getElementById('sl-ph').value = S.ph;
-      document.getElementById('sv-ph').textContent = S.ph;
-      drawScope();
+    } else if (e.touches.length === 1) {
+      if (isPanning && zoomCH3) {
+        const dx = e.touches[0].clientX - panStartX;
+        const W = wrap.offsetWidth;
+        viewStart = panStartView - dx / W;
+        drawScope();
+      } else if (phGesture) {
+        const dx = e.touches[0].clientX - phStartX;
+        const W = wrap.offsetWidth;
+        S.ph = Math.max(0, Math.min(99, phStartVal + Math.round(dx/W*100)));
+        document.getElementById('sl-ph').value = S.ph;
+        document.getElementById('sv-ph').textContent = S.ph;
+        drawScope();
+      }
     }
   }, {passive:true});
 
   wrap.addEventListener('touchend', e => {
-    if (phGesture && e.touches.length === 0) {
-      sendRaw('P3:'+S.ph+'\n');
-      phGesture = false;
+    if (e.touches.length === 0) {
+      if (phGesture) { sendRaw('P3:'+S.ph+'\n'); phGesture = false; }
+      isPanning = false;
     }
   });
 }
@@ -756,21 +831,37 @@ function drawScope() {
 
     // Рисуем пачки — каждый период CH1 содержит N3 импульсов CH3
     const ch1CycleW = W / Math.max(0.5, windowTime3 * S.freq);
-    for (let i = -1; i < cycles3 * (S.f3 / S.freq) + 2; i++) {
-      const burstStart = i * ch1CycleW + phOff3;
-      for (let j = 0; j < S.n3; j++) {
-        const ix = burstStart + j * cw3;
-        if (ix > -cw3 && ix < W + cw3) {
-          ctx.moveTo(ix, lo2);
-          ctx.lineTo(ix, hi2);
-          ctx.lineTo(ix + hiW3, hi2);
-          ctx.lineTo(ix + hiW3, lo2);
+    const offsetPx = viewStart * W;
+
+    function drawZoomBursts(color, phaseOffset) {
+      ctx.strokeStyle = color;
+      ctx.beginPath();
+      const extraPhOff = phaseOffset * ch1CycleW;
+      for (let i = -3; i < cycles3 * (S.f3 / S.freq) + 4; i++) {
+        const burstStart = i * ch1CycleW + phOff3 + extraPhOff - offsetPx;
+        for (let j = 0; j < S.n3; j++) {
+          const ix = burstStart + j * cw3;
+          if (ix > -cw3 && ix < W + cw3) {
+            ctx.moveTo(ix, lo2);
+            ctx.lineTo(ix, hi2);
+            ctx.lineTo(ix + hiW3, hi2);
+            ctx.lineTo(ix + hiW3, lo2);
+          }
         }
       }
+      ctx.moveTo(0, lo2); ctx.lineTo(W, lo2);
+      ctx.stroke();
     }
-    // Базовая линия
-    ctx.moveTo(0, lo2); ctx.lineTo(W, lo2);
-    ctx.stroke(); ctx.shadowBlur = 0;
+
+    ctx.lineWidth = 2.5 * devicePixelRatio;
+    ctx.shadowBlur = 5 * devicePixelRatio;
+    ctx.shadowColor = '#00aaff';
+    drawZoomBursts('#00aaff', 0);
+    if (x2Active) {
+      ctx.shadowColor = '#aa44ff';
+      drawZoomBursts('#aa44ff', 0.5);
+    }
+    ctx.shadowBlur = 0;
 
     // Метка
     ctx.fillStyle = '#00aaff';
@@ -781,7 +872,13 @@ function drawScope() {
     // Обычный режим — 3 канала
     drawPWM(0,      S.duty, '#00ff88', cycles, 0);
     drawPWM(rowH,   S.duty, '#ff6600', cycles, 0.5);
+    // CH3 пачки — если X2 то вторая пачка со сдвигом 50% периода CH1
     drawBurst(rowH*2, S.d3, '#00aaff', S.n3, S.ph, cycles);
+    if (x2Active) {
+      // Вторая пачка сдвинута на 50% периода CH1 (в фазу CH2)
+      const ph2 = (S.ph + 50) % 100;
+      drawBurst(rowH*2, S.d3, '#aa44ff', S.n3, ph2, cycles);
+    }
   }
 
   ctx.restore();
@@ -826,6 +923,18 @@ window.onUsbEvent = function(event) {
       const d = JSON.parse(event.substring(5).trim());
       if (d.f1 !== undefined) {
         S.freq=d.f1; S.duty=Math.round(d.d1/2); S.f3=d.f3; S.d3=d.d3; S.n3=d.n3; S.ph=d.p3;
+        if (d.x2 !== undefined && d.x2 !== (x2Active?1:0)) {
+          x2Active = d.x2 === 1;
+          const btn = document.getElementById('btn-ch3');
+          btn.style.borderColor = x2Active ? 'var(--yellow)' : '';
+          btn.style.boxShadow = x2Active ? '0 0 10px var(--yellow)' : '';
+          btn.querySelector('sub').textContent = x2Active ? '×2' : '3';
+        }
+        if (d.pl !== undefined) {
+          pllActive = d.pl === 1;
+          document.getElementById('btn-pll').classList.toggle('active', pllActive);
+          document.getElementById('pll-sub').textContent = pllActive ? 'ON' : 'ЧЧ';
+        }
         document.getElementById('sl-freq').value = S.freq;
         document.getElementById('sl-duty').value = S.duty;
         document.getElementById('sl-f3').value = S.f3;
