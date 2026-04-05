@@ -640,14 +640,16 @@ function drawScope() {
   const lo = rowH - pad;
 
   // ─── Draw PWM wave ───
-  function drawPWM(yTop, duty, color, cycles) {
+  // phaseShift: 0 = нет сдвига, 0.5 = противофаза
+  function drawPWM(yTop, duty, color, cycles, phaseShift) {
     const cw = W / cycles;
+    const phOff = (phaseShift || 0) * cw;
     ctx.strokeStyle = color; ctx.lineWidth = 2 * devicePixelRatio;
     ctx.shadowColor = color; ctx.shadowBlur = 3 * devicePixelRatio;
     ctx.beginPath();
     const hiW = cw * duty / 100;
     for (let i = -1; i < cycles + 1; i++) {
-      const x0 = i * cw;
+      const x0 = i * cw + phOff;
       ctx.moveTo(x0, yTop + lo);
       ctx.lineTo(x0, yTop + hi);
       ctx.lineTo(x0 + hiW, yTop + hi);
@@ -660,24 +662,32 @@ function drawScope() {
   // ─── Draw burst (CH3) ───
   function drawBurst(yTop, duty3, color, count, phase, cycles) {
     const cw = W / cycles;
+    // Фаза — сдвиг пачки вправо (0-99% от периода CH1)
     const phOff = phase / 100 * cw;
+
     ctx.strokeStyle = color; ctx.lineWidth = 2 * devicePixelRatio;
     ctx.shadowColor = color; ctx.shadowBlur = 3 * devicePixelRatio;
     ctx.beginPath();
 
-    // Calculate burst width based on ch3_freq vs freq ratio
-    const ratio = Math.min(0.8, S.f3 / (S.freq * 20));
-    const burstW = cw * ratio;
-    const impW = burstW / count;
+    // Ширина одного импульса в пачке пропорциональна f3/freq
+    // Больше f3 → импульсы уже и их больше помещается
+    const freqRatio = S.f3 / S.freq;
+    // Ширина пачки = count импульсов, каждый = 1/freqRatio ширины периода CH1
+    const impW = Math.max(2, cw / freqRatio);
     const hiW3 = impW * duty3 / 100;
+    const burstW = impW * count;
 
     for (let i = 0; i < cycles; i++) {
       const x0 = i * cw;
+      const bStart = x0 + phOff;
+
       ctx.moveTo(x0, yTop + lo);
-      ctx.lineTo(x0 + phOff, yTop + lo);
+      ctx.lineTo(bStart, yTop + lo);
+
       for (let j = 0; j < count; j++) {
-        const ix = x0 + phOff + j * impW;
-        if (ix + hiW3 < x0 + cw) {
+        const ix = bStart + j * impW;
+        // Рисуем только если в пределах текущего периода
+        if (ix < x0 + cw && ix + hiW3 < x0 + cw + impW) {
           ctx.lineTo(ix, yTop + lo);
           ctx.lineTo(ix, yTop + hi);
           ctx.lineTo(ix + hiW3, yTop + hi);
@@ -692,8 +702,11 @@ function drawScope() {
   const cycles = 4;
   ctx.save(); ctx.rect(0,0,W,H); ctx.clip();
 
-  drawPWM(0,       S.duty, '#00ff88', cycles);
-  drawPWM(rowH,    S.duty, '#ff6600', cycles);  // CH2 inverted phase
+  // CH1 — без сдвига
+  drawPWM(0,      S.duty, '#00ff88', cycles, 0);
+  // CH2 — противофаза 180° (сдвиг 0.5 периода)
+  drawPWM(rowH,   S.duty, '#ff6600', cycles, 0.5);
+  // CH3 — пачки с фазой
   drawBurst(rowH*2, S.d3, '#00aaff', S.n3, S.ph, cycles);
 
   ctx.restore();
