@@ -307,7 +307,7 @@ input[type=range].cyan::-webkit-slider-thumb { background: var(--cyan); box-shad
     <div id="panel-ch3p" style="display:none">
       <div class="slider-row" onclick="setCh3pActive('ph')" style="cursor:pointer">
         <span class="sl-name" id="lbl-ph" style="color:var(--cyan)">PHS</span>
-        <input type="range" id="sl-ph" min="0" max="99" value="0" class="cyan"
+        <input type="range" id="sl-ph" min="0" max="999" value="0" class="cyan"
                oninput="onPhSlider(this.value)">
         <span class="sl-val" id="sv-ph" style="color:var(--cyan)">0</span>
         <span class="sl-unit">%</span>
@@ -597,36 +597,7 @@ function updateSum() {
 }
 
 // ─── Oscilloscope ───
-// Phase gesture on CH3
 let phGesture = false, phStartX = 0, phStartVal = 0;
-function initGesture() {
-  const wrap = document.getElementById('scope-wrap');
-  wrap.addEventListener('touchstart', e => {
-    const y = e.touches[0].clientY;
-    const h = wrap.offsetHeight;
-    // Only bottom third = CH3 area
-    if (y > h * 0.67) {
-      phGesture = true;
-      phStartX = e.touches[0].clientX;
-      phStartVal = S.ph;
-    }
-  }, {passive:true});
-  wrap.addEventListener('touchmove', e => {
-    if (!phGesture) return;
-    const dx = e.touches[0].clientX - phStartX;
-    const W = wrap.offsetWidth;
-    S.ph = Math.max(0, Math.min(99, phStartVal + Math.round(dx/W*100)));
-    document.getElementById('sl-ph').value = S.ph;
-    document.getElementById('sv-ph').textContent = S.ph;
-    drawScope();
-  }, {passive:true});
-  wrap.addEventListener('touchend', () => {
-    if (phGesture) {
-      sendRaw('P3:'+S.ph+'\n');
-      phGesture = false;
-    }
-  });
-}
 
 let zoomCH3 = false;
 let timeScale = 1.0;
@@ -701,7 +672,8 @@ function initGesture() {
       } else if (phGesture) {
         const dx = e.touches[0].clientX - phStartX;
         const W = wrap.offsetWidth;
-        S.ph = Math.max(0, Math.min(99, phStartVal + Math.round(dx/W*100)));
+        const phDelta = Math.round(dx / W * 999);
+        S.ph = ((phStartVal + phDelta) % 1000 + 1000) % 1000;
         document.getElementById('sl-ph').value = S.ph;
         document.getElementById('sv-ph').textContent = S.ph;
         drawScope();
@@ -763,39 +735,35 @@ function drawScope() {
   function drawBurst(yTop, duty3, color, count, phase, cycles) {
     const cw = W / cycles;
     // Фаза — сдвиг пачки вправо (0-99% от периода CH1)
-    const phOff = phase / 100 * cw;
+    const phOff = phase / 1000 * cw;
 
     ctx.strokeStyle = color; ctx.lineWidth = 2 * devicePixelRatio;
     ctx.shadowColor = color; ctx.shadowBlur = 3 * devicePixelRatio;
     ctx.beginPath();
 
-    // Ширина одного импульса в пачке пропорциональна f3/freq
-    // Больше f3 → импульсы уже и их больше помещается
     const freqRatio = S.f3 / S.freq;
-    // Ширина пачки = count импульсов, каждый = 1/freqRatio ширины периода CH1
     const impW = Math.max(2, cw / freqRatio);
     const hiW3 = impW * duty3 / 100;
-    const burstW = impW * count;
 
-    for (let i = 0; i < cycles; i++) {
-      const x0 = i * cw;
-      const bStart = x0 + phOff;
-
-      ctx.moveTo(x0, yTop + lo);
-      ctx.lineTo(bStart, yTop + lo);
-
+    // Первый импульс первой пачки на экране
+    // Пачки повторяются каждые cw пикселей (период CH1)
+    // Внутри каждой пачки count импульсов через impW
+    const firstBurst = phOff % cw - cw; // начало первой пачки левее экрана
+    
+    for (let i = 0; i * cw + firstBurst < W + cw * 2; i++) {
+      const bStart = firstBurst + i * cw;
       for (let j = 0; j < count; j++) {
         const ix = bStart + j * impW;
-        // Рисуем только если в пределах текущего периода
-        if (ix < x0 + cw && ix + hiW3 < x0 + cw + impW) {
-          ctx.lineTo(ix, yTop + lo);
-          ctx.lineTo(ix, yTop + hi);
-          ctx.lineTo(ix + hiW3, yTop + hi);
-          ctx.lineTo(ix + hiW3, yTop + lo);
+        if (ix + hiW3 > 0 && ix < W) {
+          ctx.moveTo(Math.max(0, ix), yTop + lo);
+          ctx.lineTo(Math.max(0, ix), yTop + hi);
+          ctx.lineTo(Math.min(W, ix + hiW3), yTop + hi);
+          ctx.lineTo(Math.min(W, ix + hiW3), yTop + lo);
         }
       }
-      ctx.lineTo(x0 + cw, yTop + lo);
     }
+    // Базовая линия
+    ctx.moveTo(0, yTop + lo); ctx.lineTo(W, yTop + lo);
     ctx.stroke(); ctx.shadowBlur = 0;
   }
 
@@ -821,7 +789,7 @@ function drawScope() {
     const windowTime3 = baseCycles / baseFreq / timeScale;
     const cycles3 = Math.max(0.5, windowTime3 * S.f3);
     const cw3 = W / cycles3;
-    const phOff3 = S.ph / 100 * cw3;
+    const phOff3 = S.ph / 1000 * cw3;
     const impW3 = cw3;
     const hiW3 = impW3 * S.d3 / 100;
 
@@ -876,7 +844,7 @@ function drawScope() {
     drawBurst(rowH*2, S.d3, '#00aaff', S.n3, S.ph, cycles);
     if (x2Active) {
       // Вторая пачка сдвинута на 50% периода CH1 (в фазу CH2)
-      const ph2 = (S.ph + 50) % 100;
+      const ph2 = (S.ph + 500) % 1000;
       drawBurst(rowH*2, S.d3, '#aa44ff', S.n3, ph2, cycles);
     }
   }
