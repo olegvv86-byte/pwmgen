@@ -924,7 +924,7 @@ window.onUsbEvent = function(event) {
   } else if (event.startsWith('data:')) {
     try {
       const d = JSON.parse(event.substring(5).trim());
-      if (d.f1 !== undefined && !sliderActive) {
+      if (d.f1 !== undefined && !sliderActive && !phGesture) {
         S.freq=d.f1; S.duty=d.d1; S.f3=d.f3; S.d3=d.d3; S.n3=d.n3; S.ph=d.p3;
         if (d.x2 !== undefined && d.x2 !== (x2Active?1:0)) {
           x2Active = d.x2 === 1;
