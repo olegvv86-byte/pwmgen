@@ -483,45 +483,64 @@ function digitChg(dir) {
 }
 
 // ─── Sliders - обновляем экран при движении, отправляем при отпускании ───
+// Сглаживание ползунков
+const sliderHistory = {};
+function smoothSlider(id, v, fn) {
+  if (!sliderHistory[id]) sliderHistory[id] = [];
+  const h = sliderHistory[id];
+  h.push(v);
+  if (h.length > 5) h.shift();
+  const avg = Math.round(h.reduce((a,b)=>a+b,0) / h.length);
+  fn(avg);
+}
+
 function onFreqSlider(v) {
-  v = parseInt(v);
-  S.freq = v;
-  document.getElementById('sv-freq').textContent = v;
-  buildDigits(v, 'Hz');
-  updateSum(); drawScope();
+  smoothSlider('freq', parseInt(v), val => {
+    S.freq = val;
+    document.getElementById('sv-freq').textContent = val;
+    buildDigits(val, 'Hz');
+    updateSum(); drawScope();
+  });
 }
 function onDutySlider(v) {
-  v = parseInt(v);
-  S.duty = v;
-  document.getElementById('sv-duty').textContent = v;
-  document.getElementById('duty-top-val').textContent = v;
-  buildDigits(v, '%');
-  updateSum(); drawScope();
+  smoothSlider('duty', parseInt(v), val => {
+    S.duty = val;
+    document.getElementById('sv-duty').textContent = val;
+    document.getElementById('duty-top-val').textContent = val;
+    buildDigits(val, '%');
+    updateSum(); drawScope();
+  });
 }
 function onF3Slider(v) {
-  v = parseInt(v);
-  S.f3 = v;
-  document.getElementById('sv-f3').textContent = fmtHz(v);
-  buildDigits(v, 'Hz');
-  updateSum(); drawScope();
+  smoothSlider('f3', parseInt(v), val => {
+    S.f3 = val;
+    document.getElementById('sv-f3').textContent = fmtHz(val);
+    buildDigits(val, 'Hz');
+    updateSum(); drawScope();
+  });
 }
 function onD3Slider(v) {
-  v = parseInt(v);
-  S.d3 = v;
-  document.getElementById('sv-d3').textContent = v;
-  document.getElementById('duty-top-val').textContent = v;
-  buildDigits(v, '%');
-  updateSum(); drawScope();
+  smoothSlider('d3', parseInt(v), val => {
+    S.d3 = val;
+    document.getElementById('sv-d3').textContent = val;
+    document.getElementById('duty-top-val').textContent = val;
+    buildDigits(val, '%');
+    updateSum(); drawScope();
+  });
 }
 function onPhSlider(v) {
-  S.ph = parseInt(v);
-  document.getElementById('sv-ph').textContent = v;
-  updateSum(); drawScope();
+  smoothSlider('ph', parseInt(v), val => {
+    S.ph = val;
+    document.getElementById('sv-ph').textContent = val;
+    updateSum(); drawScope();
+  });
 }
 function onN3Slider(v) {
-  S.n3 = parseInt(v);
-  document.getElementById('sv-n3').textContent = v;
-  updateSum(); drawScope();
+  smoothSlider('n3', parseInt(v), val => {
+    S.n3 = val;
+    document.getElementById('sv-n3').textContent = val;
+    updateSum(); drawScope();
+  });
 }
 
 // Отправляем команду только когда палец отпущен
