@@ -543,17 +543,26 @@ function onN3Slider(v) {
   });
 }
 
-let sliderActive = false; // true когда палец на ползунке
+let sliderActive = false;
+let sliderDebounce = null;
+
+// Глобальное отслеживание касания ползунков
+document.addEventListener('touchstart', e => {
+  if (e.target && e.target.type === 'range') sliderActive = true;
+}, {passive:true});
+document.addEventListener('touchend', e => {
+  if (e.target && e.target.type === 'range') {
+    setTimeout(() => { sliderActive = false; }, 300);
+  }
+}, {passive:true});
 
 function addSliderSend(id, cmdFn) {
   const el = document.getElementById(id);
-  el.addEventListener('touchstart', () => { sliderActive = true; }, {passive:true});
   el.addEventListener('touchend', () => {
     if (sliderDebounce) clearTimeout(sliderDebounce);
-    sliderDebounce = setTimeout(() => { cmdFn(); sliderActive = false; }, 50);
+    sliderDebounce = setTimeout(() => cmdFn(), 100);
   });
-  el.addEventListener('mousedown', () => { sliderActive = true; });
-  el.addEventListener('mouseup', () => { cmdFn(); sliderActive = false; });
+  el.addEventListener('mouseup', () => cmdFn());
 }
 
 let ch3pActive = 'ph';
