@@ -201,7 +201,10 @@ public class MainActivity extends Activity {
     private void connectWifi(String host) {
         try {
             if (wifiSocket != null) { try { wifiSocket.close(); } catch (Exception e) {} }
-            wifiSocket = new Socket(host, WIFI_PORT);
+            wifiSocket = new Socket();
+            wifiSocket.connect(new java.net.InetSocketAddress(host, WIFI_PORT), 3000);
+            wifiSocket.setSoTimeout(0);
+            wifiSocket.setKeepAlive(true);
             wifiOut = wifiSocket.getOutputStream();
             wifiIn  = wifiSocket.getInputStream();
             mainHandler.post(() -> {
