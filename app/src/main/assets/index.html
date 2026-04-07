@@ -485,65 +485,48 @@ function digitChg(dir) {
   document.getElementById('dpval').textContent = newS[activeDigitIdx] || '0';
 }
 
-// ─── Sliders - обновляем экран при движении, отправляем при отпускании ───
-// Сглаживание ползунков
-const sliderHistory = {};
-function smoothSlider(id, v, fn) {
-  if (!sliderHistory[id]) sliderHistory[id] = [];
-  const h = sliderHistory[id];
-  h.push(v);
-  if (h.length > 5) h.shift();
-  const avg = Math.round(h.reduce((a,b)=>a+b,0) / h.length);
-  fn(avg);
-}
-
+// ─── Sliders — отправка в реальном времени ───
 function onFreqSlider(v) {
-  smoothSlider('freq', parseInt(v), val => {
-    S.freq = val;
-    document.getElementById('sv-freq').textContent = val;
-    buildDigits(val, 'Hz');
-    updateSum(); drawScope();
-  });
+  S.freq = parseInt(v);
+  document.getElementById('sv-freq').textContent = S.freq;
+  buildDigits(S.freq, 'Hz');
+  sendRaw('F1:'+S.freq+'\n');
+  updateSum(); drawScope();
 }
 function onDutySlider(v) {
-  smoothSlider('duty', parseInt(v), val => {
-    S.duty = val;
-    document.getElementById('sv-duty').textContent = val;
-    document.getElementById('duty-top-val').textContent = val;
-    buildDigits(val, '%');
-    updateSum(); drawScope();
-  });
+  S.duty = parseInt(v);
+  document.getElementById('sv-duty').textContent = S.duty;
+  document.getElementById('duty-top-val').textContent = S.duty;
+  buildDigits(S.duty, '%');
+  sendRaw('D1:'+S.duty+'\n');
+  updateSum(); drawScope();
 }
 function onF3Slider(v) {
-  smoothSlider('f3', parseInt(v), val => {
-    S.f3 = val;
-    document.getElementById('sv-f3').textContent = fmtHz(val);
-    buildDigits(val, 'Hz');
-    updateSum(); drawScope();
-  });
+  S.f3 = parseInt(v);
+  document.getElementById('sv-f3').textContent = fmtHz(S.f3);
+  buildDigits(S.f3, 'Hz');
+  sendRaw('F3:'+S.f3+'\n');
+  updateSum(); drawScope();
 }
 function onD3Slider(v) {
-  smoothSlider('d3', parseInt(v), val => {
-    S.d3 = val;
-    document.getElementById('sv-d3').textContent = val;
-    document.getElementById('duty-top-val').textContent = val;
-    buildDigits(val, '%');
-    updateSum(); drawScope();
-  });
+  S.d3 = parseInt(v);
+  document.getElementById('sv-d3').textContent = S.d3;
+  document.getElementById('duty-top-val').textContent = S.d3;
+  buildDigits(S.d3, '%');
+  sendRaw('D3:'+S.d3+'\n');
+  updateSum(); drawScope();
 }
 function onPhSlider(v) {
-  smoothSlider('ph', parseInt(v), val => {
-    S.ph = val;
-    document.getElementById('sv-ph').textContent = val;
-    updateSum(); drawScope();
-  });
+  S.ph = parseInt(v);
+  document.getElementById('sv-ph').textContent = S.ph;
+  sendRaw('P3:'+S.ph+'\n');
+  updateSum(); drawScope();
 }
 function onN3Slider(v) {
-  smoothSlider('n3', parseInt(v), val => {
-    S.n3 = val;
-    document.getElementById('sv-n3').textContent = val;
-    updateSum(); drawScope();
-  });
+  S.n3 = parseInt(v);
+  document.getElementById('sv-n3').textContent = S.n3;
+  sendRaw('N3:'+S.n3+'\n');
+  updateSum(); drawScope();
 }
 
 let sliderActive = false;
@@ -1008,18 +991,9 @@ window.addEventListener('load', () => {
   updateSum();
   initGesture();
 
-  // Отправка команд при отпускании ползунка
-  addSliderSend('sl-freq', () => sendRaw('F1:'+S.freq+'\n'));
-  addSliderSend('sl-duty', () => sendRaw('D1:'+S.duty+'\n'));
-  addSliderSend('sl-f3',   () => sendRaw('F3:'+S.f3+'\n'));
-  addSliderSend('sl-d3',   () => sendRaw('D3:'+S.d3+'\n'));
-  addSliderSend('sl-ph',   () => sendRaw('P3:'+S.ph+'\n'));
-  addSliderSend('sl-n3',   () => sendRaw('N3:'+S.n3+'\n'));
-
   const ro = new ResizeObserver(() => drawScope());
   ro.observe(document.getElementById('scope-wrap'));
   drawScope();
-  // Повторная отрисовка после полной загрузки
   setTimeout(() => drawScope(), 300);
   setTimeout(() => drawScope(), 800);
 });
