@@ -227,6 +227,9 @@ input[type=range].cyan::-webkit-slider-thumb { background: var(--cyan); box-shad
   <div class="sb-btn" id="btn-pll" onclick="togglePLL()" title="ФАПЧ">
     <span style="font-size:9px">ФАП</span><sub id="pll-sub">ЧЧ</sub>
   </div>
+  <div class="sb-btn" id="btn-inv" onclick="toggleINV()" title="Инверсия сигналов">
+    <span style="font-size:9px">INV</span><sub id="inv-sub">OFF</sub>
+  </div>
   <div class="sb-btn" id="btn-zoom" onclick="toggleZoom()" title="CH3 на весь экран">
     <span style="font-size:14px">⛶</span><sub>CH3</sub>
   </div>
@@ -569,6 +572,15 @@ let ch3pActive = 'ph';
 let x2Active = false;
 let ch3LastTap = 0;
 let pllActive = false;
+let invActive = false;
+
+function toggleINV() {
+  invActive = !invActive;
+  sendRaw('IV:'+(invActive?1:0)+'\n');
+  const btn = document.getElementById('btn-inv');
+  btn.classList.toggle('active', invActive);
+  document.getElementById('inv-sub').textContent = invActive ? 'ON' : 'OFF';
+}
 
 function togglePLL() {
   pllActive = !pllActive;
@@ -937,6 +949,11 @@ window.onUsbEvent = function(event) {
           pllActive = d.pl === 1;
           document.getElementById('btn-pll').classList.toggle('active', pllActive);
           document.getElementById('pll-sub').textContent = pllActive ? 'ON' : 'ЧЧ';
+        }
+        if (d.iv !== undefined) {
+          invActive = d.iv === 1;
+          document.getElementById('btn-inv').classList.toggle('active', invActive);
+          document.getElementById('inv-sub').textContent = invActive ? 'ON' : 'OFF';
         }
         document.getElementById('sl-freq').value = S.freq;
         document.getElementById('sl-duty').value = S.duty;
