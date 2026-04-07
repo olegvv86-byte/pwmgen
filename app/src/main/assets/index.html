@@ -555,7 +555,7 @@ document.addEventListener('touchstart', e => {
 }, {passive:true});
 document.addEventListener('touchend', e => {
   if (e.target && e.target.type === 'range') {
-    setTimeout(() => { sliderActive = false; }, 300);
+    setTimeout(() => { sliderActive = false; }, 1500);
   }
 }, {passive:true});
 
@@ -1019,6 +1019,9 @@ window.addEventListener('load', () => {
   const ro = new ResizeObserver(() => drawScope());
   ro.observe(document.getElementById('scope-wrap'));
   drawScope();
+  // Повторная отрисовка после полной загрузки
+  setTimeout(() => drawScope(), 300);
+  setTimeout(() => drawScope(), 800);
 });
 </script>
 </body>

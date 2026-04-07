@@ -29,8 +29,11 @@ import com.hoho.android.usbserial.driver.UsbSerialProber;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.util.List;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
 
 public class MainActivity extends Activity {
 
@@ -43,17 +46,17 @@ public class MainActivity extends Activity {
     private UsbManager usbManager;
     private UsbSerialPort serialPort;
     private Handler mainHandler;
-    private Thread readThread;
     private volatile boolean reading = false;
     private StringBuilder readBuf = new StringBuilder();
 
     private Socket wifiSocket;
     private OutputStream wifiOut;
     private InputStream wifiIn;
-    private Thread wifiReadThread;
     private volatile boolean wifiReading = false;
     private String wifiHost = WIFI_DEFAULT_HOST;
     private String connMode = "usb";
+
+    private final BlockingQueue<String> wifiQueue = new LinkedBlockingQueue<>();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -77,58 +80,54 @@ public class MainActivity extends Activity {
         webView.loadUrl("file:///android_asset/index.html");
     }
 
-    public class UsbBridge {
+    class UsbBridge {
         @JavascriptInterface
         public String connect() {
             if (connMode.equals("wifi")) {
                 new Thread(() -> connectWifi(wifiHost)).start();
                 return "WIFI";
             }
-            try { return connectUsb(); } catch (Exception e) { return "ERROR: " + e.getMessage(); }
+            return connectUsb();
+        }
+
+        @JavascriptInterface
+        public void showConnectionMenu() {
+            mainHandler.post(() -> showConnMenu());
         }
 
         @JavascriptInterface
         public void send(String data) {
-            if (connMode.equals("wifi")) sendWifi(data);
-            else try { sendSerial(data); } catch (Exception e) {}
-        }
-
-        @JavascriptInterface
-        public void disconnect() {
-            if (connMode.equals("wifi")) new Thread(() -> disconnectWifi()).start();
-            else disconnectUsb();
-        }
-
-        @JavascriptInterface
-        public boolean isConnected() {
-            if (connMode.equals("wifi")) return wifiSocket != null && wifiSocket.isConnected();
-            return serialPort != null;
+            if (connMode.equals("wifi")) {
+                wifiQueue.offer(data);
+            } else {
+                sendUsb(data);
+            }
         }
 
         @JavascriptInterface
         public String getMode() { return connMode; }
-
-        @JavascriptInterface
-        public void showConnectionMenu() { mainHandler.post(() -> showConnMenu()); }
     }
 
     private void showConnMenu() {
+        String[] items = {"USB кабель", "WiFi (PWMGen)"};
         new AlertDialog.Builder(this)
             .setTitle("Подключение")
-            .setItems(new String[]{"USB кабель", "WiFi (PWMGen)"}, (dialog, which) -> {
-                if (which == 0) {
+            .setItems(items, (d, w) -> {
+                if (w == 0) {
                     connMode = "usb";
-                    new Thread(() -> { disconnectWifi(); connectUsb(); }).start();
+                    new Thread(this::disconnectWifi).start();
+                    String r = connectUsb();
+                    notifyJs(r.equals("NO_DEVICE") ? "disconnected" : "connected");
                 } else {
-                    showWifiIpDialog();
+                    showWifiDialog();
                 }
             }).show();
     }
 
-    private void showWifiIpDialog() {
+    private void showWifiDialog() {
         EditText input = new EditText(this);
-        input.setInputType(InputType.TYPE_CLASS_TEXT);
         input.setText(wifiHost);
+        input.setHint("192.168.4.1");
         new AlertDialog.Builder(this)
             .setTitle("IP адрес Pico W")
             .setView(input)
@@ -147,139 +146,163 @@ public class MainActivity extends Activity {
         UsbSerialDriver driver = drivers.get(0);
         UsbDevice device = driver.getDevice();
         if (!usbManager.hasPermission(device)) {
-            PendingIntent pi = PendingIntent.getBroadcast(this, 0, new Intent(ACTION_USB_PERMISSION), PendingIntent.FLAG_MUTABLE);
+            PendingIntent pi = PendingIntent.getBroadcast(this, 0,
+                new Intent(ACTION_USB_PERMISSION), PendingIntent.FLAG_IMMUTABLE);
             usbManager.requestPermission(device, pi);
-            return "REQUESTING_PERMISSION";
+            return "NO_PERMISSION";
         }
+        UsbDeviceConnection conn = usbManager.openDevice(device);
+        if (conn == null) return "NO_DEVICE";
         try {
-            UsbDeviceConnection connection = usbManager.openDevice(device);
-            if (connection == null) return "OPEN_FAILED";
             serialPort = driver.getPorts().get(0);
-            serialPort.open(connection);
+            serialPort.open(conn);
             serialPort.setParameters(BAUD_RATE, 8, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE);
-            serialPort.setDTR(true);
-            serialPort.setRTS(true);
-        } catch (IOException e) { return "PORT_ERROR: " + e.getMessage(); }
-        startReading();
-        notifyJs("connected");
-        return "OK";
+            startUsbRead();
+            notifyJs("connected");
+            return "OK";
+        } catch (IOException e) { return "ERROR"; }
     }
 
-    private void startReading() {
-        reading = true;
-        readThread = new Thread(() -> {
-            byte[] buf = new byte[256];
-            while (reading && serialPort != null) {
-                try {
-                    int n = serialPort.read(buf, 200);
-                    if (n > 0) {
-                        readBuf.append(new String(buf, 0, n));
-                        int idx;
-                        while ((idx = readBuf.indexOf("\n")) >= 0) {
-                            String line = readBuf.substring(0, idx).trim();
-                            readBuf.delete(0, idx + 1);
-                            if (!line.isEmpty()) { final String l = line; mainHandler.post(() -> notifyJs("data:" + l)); }
-                        }
-                    }
-                } catch (IOException e) { if (reading) mainHandler.post(() -> notifyJs("error:" + e.getMessage())); break; }
-            }
-        });
-        readThread.start();
-    }
-
-    private void sendSerial(String data) {
+    private void sendUsb(String data) {
         if (serialPort == null) return;
-        new Thread(() -> { try { serialPort.write(data.getBytes(), 1000); } catch (IOException e) {} }).start();
+        try { serialPort.write(data.getBytes(), 200); } catch (IOException ignored) {}
     }
 
     private void disconnectUsb() {
         reading = false;
-        if (serialPort != null) { try { serialPort.close(); } catch (IOException e) {} serialPort = null; }
-        mainHandler.post(() -> notifyJs("disconnected"));
+        if (serialPort != null) {
+            try { serialPort.close(); } catch (IOException ignored) {}
+            serialPort = null;
+        }
+    }
+
+    private void startUsbRead() {
+        reading = true;
+        new Thread(() -> {
+            byte[] buf = new byte[256];
+            while (reading && serialPort != null) {
+                try {
+                    int n = serialPort.read(buf, 200);
+                    if (n > 0) processIncoming(new String(buf, 0, n), readBuf);
+                } catch (IOException e) { reading = false; }
+            }
+        }).start();
     }
 
     private void connectWifi(String host) {
         try {
-            if (wifiSocket != null) { try { wifiSocket.close(); } catch (Exception e) {} }
-            wifiSocket = new Socket();
-            wifiSocket.connect(new java.net.InetSocketAddress(host, WIFI_PORT), 3000);
-            wifiSocket.setSoTimeout(0);
-            wifiSocket.setKeepAlive(true);
-            wifiOut = wifiSocket.getOutputStream();
-            wifiIn  = wifiSocket.getInputStream();
+            disconnectWifi();
+            wifiQueue.clear();
+            Socket s = new Socket();
+            s.connect(new InetSocketAddress(host, WIFI_PORT), 3000);
+            s.setTcpNoDelay(true);
+            s.setKeepAlive(true);
+            wifiSocket = s;
+            wifiOut = s.getOutputStream();
+            wifiIn = s.getInputStream();
+            wifiReading = true;
+            startWifiRead();
+            startWifiSend();
             mainHandler.post(() -> {
-                Toast.makeText(MainActivity.this, "WiFi подключён!", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "WiFi подключён!", Toast.LENGTH_SHORT).show();
                 notifyJs("connected");
             });
-            startWifiRead();
         } catch (Exception e) {
             mainHandler.post(() -> {
-                Toast.makeText(MainActivity.this, "Ошибка: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                Toast.makeText(this, "Ошибка: " + e.getMessage(), Toast.LENGTH_LONG).show();
                 notifyJs("disconnected");
             });
         }
     }
 
-    private void sendWifi(String data) {
-        new Thread(() -> { try { if (wifiOut != null) wifiOut.write(data.getBytes()); } catch (Exception e) { mainHandler.post(() -> notifyJs("disconnected")); } }).start();
-    }
-
     private void disconnectWifi() {
         wifiReading = false;
-        try { if (wifiSocket != null) wifiSocket.close(); } catch (Exception e) {}
+        wifiQueue.offer("__STOP__");
+        try { if (wifiSocket != null) wifiSocket.close(); } catch (Exception ignored) {}
         wifiSocket = null; wifiOut = null; wifiIn = null;
     }
 
+    private void startWifiSend() {
+        new Thread(() -> {
+            while (wifiReading) {
+                try {
+                    String cmd = wifiQueue.take();
+                    if ("__STOP__".equals(cmd)) break;
+                    if (wifiOut != null) {
+                        synchronized (wifiOut) {
+                            wifiOut.write(cmd.getBytes());
+                            wifiOut.flush();
+                        }
+                    }
+                } catch (Exception e) {
+                    if (wifiReading) {
+                        wifiReading = false;
+                        mainHandler.post(() -> notifyJs("disconnected"));
+                    }
+                    break;
+                }
+            }
+        }).start();
+    }
+
     private void startWifiRead() {
-        wifiReading = true;
-        wifiReadThread = new Thread(() -> {
+        StringBuilder wifiBuf = new StringBuilder();
+        new Thread(() -> {
             byte[] buf = new byte[256];
-            StringBuilder sb = new StringBuilder();
             while (wifiReading && wifiIn != null) {
                 try {
                     int n = wifiIn.read(buf);
                     if (n > 0) {
-                        sb.append(new String(buf, 0, n));
-                        int idx;
-                        while ((idx = sb.indexOf("\n")) >= 0) {
-                            String line = sb.substring(0, idx).trim();
-                            sb.delete(0, idx + 1);
-                            if (!line.isEmpty()) { final String fl = line; mainHandler.post(() -> notifyJs("data:" + fl)); }
-                        }
+                        processIncoming(new String(buf, 0, n), wifiBuf);
                     } else break;
                 } catch (Exception e) { break; }
             }
-            mainHandler.post(() -> notifyJs("disconnected"));
-        });
-        wifiReadThread.start();
+            if (wifiReading) {
+                wifiReading = false;
+                mainHandler.post(() -> notifyJs("disconnected"));
+            }
+        }).start();
+    }
+
+    private void processIncoming(String data, StringBuilder buf) {
+        buf.append(data);
+        int idx;
+        while ((idx = buf.indexOf("\n")) >= 0) {
+            String line = buf.substring(0, idx).trim();
+            buf.delete(0, idx + 1);
+            if (!line.isEmpty()) {
+                final String fl = line;
+                mainHandler.post(() -> notifyJs("data:" + fl));
+            }
+        }
     }
 
     private void notifyJs(String event) {
-        String escaped = event.replace("'", "\\'").replace("\n", "\\n");
-        mainHandler.post(() -> webView.evaluateJavascript("if(window.onUsbEvent) window.onUsbEvent('" + escaped + "');", null));
+        webView.evaluateJavascript(
+            "window.onUsbEvent && window.onUsbEvent('" + event + "')", null);
     }
 
     private final BroadcastReceiver usbReceiver = new BroadcastReceiver() {
         @Override
-        public void onReceive(Context context, Intent intent) {
+        public void onReceive(Context ctx, Intent intent) {
             String action = intent.getAction();
             if (ACTION_USB_PERMISSION.equals(action)) {
-                if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) connectUsb();
-                else notifyJs("error:Permission denied");
-            } else if (UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(action)) {
-                mainHandler.postDelayed(() -> connectUsb(), 500);
+                if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
+                    String r = connectUsb();
+                    if (!"NO_DEVICE".equals(r)) notifyJs("connected");
+                }
             } else if (UsbManager.ACTION_USB_DEVICE_DETACHED.equals(action)) {
                 disconnectUsb();
+                notifyJs("disconnected");
             }
         }
     };
 
     private void registerUsbReceiver() {
-        IntentFilter filter = new IntentFilter();
-        filter.addAction(ACTION_USB_PERMISSION);
-        filter.addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED);
-        filter.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED);
-        registerReceiver(usbReceiver, filter, RECEIVER_EXPORTED);
+        IntentFilter f = new IntentFilter();
+        f.addAction(ACTION_USB_PERMISSION);
+        f.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED);
+        registerReceiver(usbReceiver, f);
     }
 
     @Override
@@ -287,12 +310,6 @@ public class MainActivity extends Activity {
         super.onDestroy();
         disconnectUsb();
         disconnectWifi();
-        try { unregisterReceiver(usbReceiver); } catch (Exception e) {}
-    }
-
-    @Override
-    public void onBackPressed() {
-        if (webView.canGoBack()) webView.goBack();
-        else super.onBackPressed();
+        try { unregisterReceiver(usbReceiver); } catch (Exception ignored) {}
     }
 }
