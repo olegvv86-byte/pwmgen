@@ -55,7 +55,6 @@ public class MainActivity extends Activity {
     private volatile boolean wifiReading = false;
     private String wifiHost = WIFI_DEFAULT_HOST;
     private String connMode = "usb";
-
     private final BlockingQueue<String> wifiQueue = new LinkedBlockingQueue<>();
 
     @Override
@@ -77,12 +76,13 @@ public class MainActivity extends Activity {
         s.setAllowFileAccess(true);
         s.setAllowFileAccessFromFileURLs(true);
         s.setAllowUniversalAccessFromFileURLs(true);
-        webView.addJavascriptInterface(new UsbBridge(), "AndroidUSB");
+        webView.addJavascriptInterface(new AndroidUSBBridge(), "AndroidUSB");
         webView.setWebViewClient(new WebViewClient());
         webView.loadUrl("file:///android_asset/index.html");
     }
 
-    class UsbBridge {
+    class AndroidUSBBridge {
+
         @JavascriptInterface
         public String connect() {
             if (connMode.equals("wifi")) {
@@ -107,7 +107,9 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
-        public String getMode() { return connMode; }
+        public String getMode() {
+            return connMode;
+        }
     }
 
     private void showConnMenu() {
@@ -128,6 +130,7 @@ public class MainActivity extends Activity {
 
     private void showWifiDialog() {
         EditText input = new EditText(this);
+        input.setInputType(InputType.TYPE_CLASS_TEXT);
         input.setText(wifiHost);
         input.setHint("192.168.4.1");
         new AlertDialog.Builder(this)
@@ -141,6 +144,8 @@ public class MainActivity extends Activity {
             })
             .setNegativeButton("Отмена", null).show();
     }
+
+    // ─── USB ──────────────────────────────────────────────────────
 
     private String connectUsb() {
         List<UsbSerialDriver> drivers = UsbSerialProber.getDefaultProber().findAllDrivers(usbManager);
@@ -162,7 +167,9 @@ public class MainActivity extends Activity {
             startUsbRead();
             notifyJs("connected");
             return "OK";
-        } catch (IOException e) { return "ERROR"; }
+        } catch (IOException e) {
+            return "ERROR";
+        }
     }
 
     private void sendUsb(String data) {
@@ -191,6 +198,8 @@ public class MainActivity extends Activity {
         }).start();
     }
 
+    // ─── WiFi ─────────────────────────────────────────────────────
+
     private void connectWifi(String host) {
         try {
             disconnectWifi();
@@ -203,8 +212,8 @@ public class MainActivity extends Activity {
             wifiOut = s.getOutputStream();
             wifiIn = s.getInputStream();
             wifiReading = true;
-            startWifiRead();
             startWifiSend();
+            startWifiRead();
             mainHandler.post(() -> {
                 Toast.makeText(this, "WiFi подключён!", Toast.LENGTH_SHORT).show();
                 notifyJs("connected");
@@ -221,7 +230,9 @@ public class MainActivity extends Activity {
         wifiReading = false;
         wifiQueue.offer("__STOP__");
         try { if (wifiSocket != null) wifiSocket.close(); } catch (Exception ignored) {}
-        wifiSocket = null; wifiOut = null; wifiIn = null;
+        wifiSocket = null;
+        wifiOut = null;
+        wifiIn = null;
     }
 
     private void startWifiSend() {
@@ -231,10 +242,8 @@ public class MainActivity extends Activity {
                     String cmd = wifiQueue.take();
                     if ("__STOP__".equals(cmd)) break;
                     if (wifiOut != null) {
-                        synchronized (wifiOut) {
-                            wifiOut.write(cmd.getBytes());
-                            wifiOut.flush();
-                        }
+                        wifiOut.write(cmd.getBytes());
+                        wifiOut.flush();
                     }
                 } catch (Exception e) {
                     if (wifiReading) {
@@ -266,6 +275,8 @@ public class MainActivity extends Activity {
         }).start();
     }
 
+    // ─── Общая обработка ──────────────────────────────────────────
+
     private void processIncoming(String data, StringBuilder buf) {
         buf.append(data);
         int idx;
@@ -283,6 +294,8 @@ public class MainActivity extends Activity {
         webView.evaluateJavascript(
             "window.onUsbEvent && window.onUsbEvent('" + event + "')", null);
     }
+
+    // ─── USB Receiver ─────────────────────────────────────────────
 
     private final BroadcastReceiver usbReceiver = new BroadcastReceiver() {
         @Override
