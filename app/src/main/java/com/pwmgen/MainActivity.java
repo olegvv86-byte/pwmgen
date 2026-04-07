@@ -202,19 +202,16 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void sendWifi(String data) {
-        new Thread(() -> {
-            try {
-                if (wifiOut != null) {
-                    synchronized (wifiOut) {
-                        wifiOut.write(data.getBytes());
-                        wifiOut.flush();
-                    }
-                }
-            } catch (Exception e) {
-                mainHandler.post(() -> notifyJs("disconnected"));
+    private synchronized void sendWifi(String data) {
+        try {
+            if (wifiOut != null) {
+                wifiOut.write(data.getBytes());
+                wifiOut.flush();
             }
-        }).start();
+        } catch (Exception e) {
+            mainHandler.post(() -> notifyJs("disconnected"));
+            disconnectWifi();
+        }
     }
 
     private void disconnectWifi() {
