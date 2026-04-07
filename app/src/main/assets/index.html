@@ -234,8 +234,8 @@ input[type=range].cyan::-webkit-slider-thumb { background: var(--cyan); box-shad
     <span style="font-size:14px">⛶</span><sub>CH3</sub>
   </div>
   <div style="flex:1"></div>
-  <div class="sb-btn" onclick="connectUSB()" style="font-size:8px;">
-    <span>USB</span><sub id="conn-sub">OFF</sub>
+  <div class="sb-btn" onclick="connectUSB()" oncontextmenu="showConnMenu(); return false;" ontouchstart="startLongPress(event)" ontouchend="cancelLongPress()" ontouchmove="cancelLongPress()" style="font-size:8px;">
+    <span id="conn-icon">USB</span><sub id="conn-sub">OFF</sub>
   </div>
 </div>
 
@@ -923,6 +923,8 @@ window.onUsbEvent = function(event) {
     document.getElementById('sdot').classList.add('on');
     document.getElementById('stxt').textContent = 'ONLINE';
     document.getElementById('conn-sub').textContent = 'ON';
+    const mode = (typeof AndroidUSB !== 'undefined') ? AndroidUSB.getMode() : 'usb';
+    document.getElementById('conn-icon').textContent = mode === 'wifi' ? 'WiFi' : 'USB';
     setTimeout(() => sendRaw('GET\n'), 500);
     setTimeout(() => sendRaw('GET\n'), 1500);
     if (window._si) clearInterval(window._si);
@@ -983,6 +985,17 @@ function connectUSB() {
     const r = AndroidUSB.connect();
     if (r === 'NO_DEVICE') document.getElementById('stxt').textContent = 'НЕТ УСТРОЙСТВА';
   }
+}
+
+let longPressTimer = null;
+function startLongPress(e) {
+  longPressTimer = setTimeout(() => { showConnMenu(); }, 700);
+}
+function cancelLongPress() {
+  if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+}
+function showConnMenu() {
+  if (typeof AndroidUSB !== 'undefined') AndroidUSB.showConnectionMenu();
 }
 
 function sendRaw(s) {
