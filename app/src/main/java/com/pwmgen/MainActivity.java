@@ -160,8 +160,11 @@ public class MainActivity extends Activity {
                 wifiHost = input.getText().toString().trim();
                 if (wifiHost.isEmpty()) wifiHost = WIFI_HOST;
                 connMode = "wifi";
-                disconnectUsb();
-                connectWifi(wifiHost);
+                // Отключаем USB в фоне
+                new Thread(() -> {
+                    disconnectUsb();
+                    connectWifi(wifiHost);
+                }).start();
             })
             .setNegativeButton("Отмена", null)
             .show();
