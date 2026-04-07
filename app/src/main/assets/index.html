@@ -539,11 +539,10 @@ function onPhSlider(v) {
   });
 }
 function onN3Slider(v) {
-  smoothSlider('n3', parseInt(v), val => {
-    S.n3 = val;
-    document.getElementById('sv-n3').textContent = val;
-    updateSum(); drawScope();
-  });
+  S.n3 = parseInt(v);
+  document.getElementById('sv-n3').textContent = S.n3;
+  sendRaw('N3:'+S.n3+'\n');
+  updateSum(); drawScope();
 }
 
 let sliderActive = false;
