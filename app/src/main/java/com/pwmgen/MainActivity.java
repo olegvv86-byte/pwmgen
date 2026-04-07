@@ -245,14 +245,20 @@ public class MainActivity extends Activity {
     private void connectWifi(String host) {
         new Thread(() -> {
             try {
-                disconnectWifi();
                 wifiSocket = new Socket(host, WIFI_PORT);
+                wifiSocket.setSoTimeout(5000);
                 wifiOut = wifiSocket.getOutputStream();
                 wifiIn  = wifiSocket.getInputStream();
-                mainHandler.post(() -> notifyJs("connected"));
+                mainHandler.post(() -> {
+                    android.widget.Toast.makeText(MainActivity.this, "WiFi подключён!", android.widget.Toast.LENGTH_SHORT).show();
+                    notifyJs("connected");
+                });
                 startWifiRead();
             } catch (Exception e) {
-                mainHandler.post(() -> notifyJs("disconnected"));
+                mainHandler.post(() -> {
+                    android.widget.Toast.makeText(MainActivity.this, "Ошибка: " + e.getMessage(), android.widget.Toast.LENGTH_LONG).show();
+                    notifyJs("disconnected");
+                });
             }
         }).start();
     }
