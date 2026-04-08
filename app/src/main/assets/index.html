@@ -938,8 +938,29 @@ window.onUsbEvent = function(event) {
   } else if (event.startsWith('data:')) {
     try {
       const d = JSON.parse(event.substring(5).trim());
-      if (d.f1 !== undefined && !sliderActive && !phGesture) {
-        S.freq=d.f1; S.duty=d.d1; S.f3=d.f3; S.d3=d.d3; S.n3=d.n3; S.ph=d.p3;
+      if (d.f1 !== undefined) {
+        // Обновляем только если ползунок не активен
+        if (!sliderActive) {
+          S.freq=d.f1; S.duty=d.d1; S.f3=d.f3; S.d3=d.d3; S.n3=d.n3; S.ph=d.p3;
+          document.getElementById('sl-freq').value = S.freq;
+          document.getElementById('sl-duty').value = S.duty;
+          document.getElementById('sl-f3').value = S.f3;
+          document.getElementById('sl-d3').value = S.d3;
+          document.getElementById('sl-ph').value = S.ph;
+          document.getElementById('sl-n3').value = S.n3;
+          document.getElementById('sv-freq').textContent = S.freq;
+          document.getElementById('sv-duty').textContent = S.duty;
+          document.getElementById('sv-f3').textContent = fmtHz(S.f3);
+          document.getElementById('sv-d3').textContent = S.d3;
+          document.getElementById('sv-ph').textContent = S.ph;
+          document.getElementById('sv-n3').textContent = S.n3;
+          document.getElementById('duty-top-val').textContent =
+            currentMode === 'd3' ? S.d3 : S.duty;
+          const units = {ch12:'Hz', duty:'%', ch3:'Hz', d3:'%', ch3p:'%'};
+          const vals = {ch12:S.freq, duty:S.duty, ch3:S.f3, d3:S.d3, ch3p:S.ph};
+          buildDigits(vals[currentMode]||0, units[currentMode]||'');
+          updateSum(); drawScope();
+        }
         if (d.x2 !== undefined && d.x2 !== (x2Active?1:0)) {
           x2Active = d.x2 === 1;
           const btn = document.getElementById('btn-ch3');
@@ -957,24 +978,6 @@ window.onUsbEvent = function(event) {
           document.getElementById('btn-inv').classList.toggle('active', invActive);
           document.getElementById('inv-sub').textContent = invActive ? 'ON' : 'OFF';
         }
-        document.getElementById('sl-freq').value = S.freq;
-        document.getElementById('sl-duty').value = S.duty;
-        document.getElementById('sl-f3').value = S.f3;
-        document.getElementById('sl-d3').value = S.d3;
-        document.getElementById('sl-ph').value = S.ph;
-        document.getElementById('sl-n3').value = S.n3;
-        document.getElementById('sv-freq').textContent = S.freq;
-        document.getElementById('sv-duty').textContent = S.duty;
-        document.getElementById('sv-f3').textContent = fmtHz(S.f3);
-        document.getElementById('sv-d3').textContent = S.d3;
-        document.getElementById('sv-ph').textContent = S.ph;
-        document.getElementById('sv-n3').textContent = S.n3;
-        document.getElementById('duty-top-val').textContent =
-          currentMode === 'd3' ? S.d3 : S.duty;
-        const units = {ch12:'Hz', duty:'%', ch3:'Hz', d3:'%', ch3p:'%'};
-        const vals = {ch12:S.freq, duty:S.duty, ch3:S.f3, d3:S.d3, ch3p:S.ph};
-        buildDigits(vals[currentMode]||0, units[currentMode]||'');
-        updateSum(); drawScope();
       }
     } catch(e) {}
   }
