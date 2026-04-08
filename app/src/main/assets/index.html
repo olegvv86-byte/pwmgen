@@ -485,18 +485,29 @@ function digitChg(dir) {
   document.getElementById('dpval').textContent = newS[activeDigitIdx] || '0';
 }
 
-// ─── Sliders — отправка в реальном времени с дебаунсом ───
-const sendDebounce = {};
-function debounceSend(key, cmd, delay) {
-  if (sendDebounce[key]) clearTimeout(sendDebounce[key]);
-  sendDebounce[key] = setTimeout(() => sendRaw(cmd), delay || 50);
+// ─── Throttle отправки команд ───
+const throttleLast = {};
+const throttleTimer = {};
+function throttleSend(key, cmd, interval) {
+  throttleLast[key] = cmd;
+  if (!throttleTimer[key]) {
+    throttleTimer[key] = setInterval(() => {
+      if (throttleLast[key]) {
+        sendRaw(throttleLast[key]);
+        throttleLast[key] = null;
+      } else {
+        clearInterval(throttleTimer[key]);
+        throttleTimer[key] = null;
+      }
+    }, interval || 40);
+  }
 }
 
 function onFreqSlider(v) {
   S.freq = parseInt(v);
   document.getElementById('sv-freq').textContent = S.freq;
   buildDigits(S.freq, 'Hz');
-  debounceSend('freq', 'F1:'+S.freq+'\n', 80);
+  throttleSend('freq', 'F1:'+S.freq+'\n', 40);
   updateSum(); drawScope();
 }
 function onDutySlider(v) {
@@ -504,14 +515,14 @@ function onDutySlider(v) {
   document.getElementById('sv-duty').textContent = S.duty;
   document.getElementById('duty-top-val').textContent = S.duty;
   buildDigits(S.duty, '%');
-  debounceSend('duty', 'D1:'+S.duty+'\n', 80);
+  throttleSend('duty', 'D1:'+S.duty+'\n', 40);
   updateSum(); drawScope();
 }
 function onF3Slider(v) {
   S.f3 = parseInt(v);
   document.getElementById('sv-f3').textContent = fmtHz(S.f3);
   buildDigits(S.f3, 'Hz');
-  debounceSend('f3', 'F3:'+S.f3+'\n', 80);
+  throttleSend('f3', 'F3:'+S.f3+'\n', 40);
   updateSum(); drawScope();
 }
 function onD3Slider(v) {
@@ -519,19 +530,19 @@ function onD3Slider(v) {
   document.getElementById('sv-d3').textContent = S.d3;
   document.getElementById('duty-top-val').textContent = S.d3;
   buildDigits(S.d3, '%');
-  debounceSend('d3', 'D3:'+S.d3+'\n', 80);
+  throttleSend('d3', 'D3:'+S.d3+'\n', 40);
   updateSum(); drawScope();
 }
 function onPhSlider(v) {
   S.ph = parseInt(v);
   document.getElementById('sv-ph').textContent = S.ph;
-  debounceSend('ph', 'P3:'+S.ph+'\n', 50);
+  throttleSend('ph', 'P3:'+S.ph+'\n', 40);
   updateSum(); drawScope();
 }
 function onN3Slider(v) {
   S.n3 = parseInt(v);
   document.getElementById('sv-n3').textContent = S.n3;
-  debounceSend('n3', 'N3:'+S.n3+'\n', 50);
+  throttleSend('n3', 'N3:'+S.n3+'\n', 40);
   updateSum(); drawScope();
 }
 
