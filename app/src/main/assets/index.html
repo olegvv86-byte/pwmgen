@@ -206,7 +206,7 @@ input[type=range].cyan::-webkit-slider-thumb { background: var(--cyan); box-shad
 
 <!-- SIDEBAR -->
 <div class="sidebar">
-  <div class="sb-btn active" id="btn-ch12" onclick="selectMode('ch12')">
+  <div class="sb-btn active" id="btn-ch12" id="btn-ch12" ondblclick="toggleCh3Link()" onclick="selectMode('ch12')">
     <span>CH</span><sub>1/2</sub>
   </div>
   <div class="sb-btn" id="btn-duty" onclick="selectMode('duty')">
@@ -444,7 +444,7 @@ function setCurVal(v) {
     document.getElementById('sv-ph').textContent = v;
     sendRaw('P3:'+v+'\n');
   }
-  const units = {ch12:'Hz', duty:'%', ch3:'Hz', d3:'%', ch3p:'%'};
+  const units = {ch12:'Hz', duty:'%', ch3:'Hz', ch3f:'Hz', d3:'%', ch3p:'%'};
   buildDigits(v, units[currentMode]);
   updateSum();
   drawScope();
@@ -468,14 +468,14 @@ function closePopup(e) {
   if (!document.getElementById('dpop').contains(e.target)) {
     document.getElementById('dpop').classList.remove('show');
     activeDigitIdx = -1;
-    const units = {ch12:'Hz', duty:'%', ch3:'Hz', d3:'%', ch3p:'%'};
+    const units = {ch12:'Hz', duty:'%', ch3:'Hz', ch3f:'Hz', d3:'%', ch3p:'%'};
     buildDigits(getCurVal(), units[currentMode]);
   }
 }
 
 function digitChg(dir) {
   if (activeDigitIdx < 0) return;
-  const units = {ch12:'Hz', duty:'%', ch3:'Hz', d3:'%', ch3p:'%'};
+  const units = {ch12:'Hz', duty:'%', ch3:'Hz', ch3f:'Hz', d3:'%', ch3p:'%'};
   const unit = units[currentMode];
   const isPct = unit === '%';
   const s = isPct ? String(getCurVal()).padStart(2,'0') : String(getCurVal()).padStart(7,'0');
@@ -572,6 +572,8 @@ let ch3pActive = 'ph';
 let x2Active = false;
 let ch3LastTap = 0;
 let pllActive = false;
+let ch3Linked = true;  // привязка CH3 к CH1
+let ch3SubMode = 0;   // 0=частота пачки, 1=несущая частота CH3
 let invActive = false;
 
 function toggleINV() {
@@ -956,10 +958,17 @@ window.onUsbEvent = function(event) {
           document.getElementById('sv-n3').textContent = S.n3;
           document.getElementById('duty-top-val').textContent =
             currentMode === 'd3' ? S.d3 : S.duty;
-          const units = {ch12:'Hz', duty:'%', ch3:'Hz', d3:'%', ch3p:'%'};
-          const vals = {ch12:S.freq, duty:S.duty, ch3:S.f3, d3:S.d3, ch3p:S.ph};
+          const units = {ch12:'Hz', duty:'%', ch3:'Hz', ch3f:'Hz', d3:'%', ch3p:'%'};
+          const vals = {ch12:S.freq, duty:S.duty, ch3:S.f3, ch3f:S.f3, d3:S.d3, ch3p:S.ph};
           buildDigits(vals[currentMode]||0, units[currentMode]||'');
           updateSum(); drawScope();
+        }
+        if (d.lk !== undefined) {
+          ch3Linked = d.lk === 1;
+          const b12 = document.getElementById('btn-ch12');
+          b12.style.borderColor = !ch3Linked ? 'var(--orange)' : '';
+          b12.style.boxShadow = !ch3Linked ? '0 0 10px var(--orange)' : '';
+          b12.querySelector('sub').textContent = !ch3Linked ? '⊥' : '1/2';
         }
         if (d.x2 !== undefined && d.x2 !== (x2Active?1:0)) {
           x2Active = d.x2 === 1;
