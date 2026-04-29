@@ -206,8 +206,8 @@ input[type=range].cyan::-webkit-slider-thumb { background: var(--cyan); box-shad
 
 <!-- SIDEBAR -->
 <div class="sidebar">
-  <div class="sb-btn active" id="btn-ch12" id="btn-ch12" ondblclick="toggleCh3Link()" onclick="selectMode('ch12')">
-    <span>CH</span><sub>1/2</sub>
+  <div class="sb-btn active" id="btn-ch12" onclick="onCh12Tap()">
+    <span>CH</span><sub id="ch12-sub">1/2</sub>
   </div>
   <div class="sb-btn" id="btn-duty" onclick="selectMode('duty')">
     <span style="font-size:14px">%</span><sub>1/2</sub>
@@ -220,7 +220,7 @@ input[type=range].cyan::-webkit-slider-thumb { background: var(--cyan); box-shad
     <span style="font-size:14px">%</span><sub>ch3</sub>
   </div>
   <div class="sb-sep"></div>
-  <div class="sb-btn" id="btn-ch3p" onclick="selectMode('ch3p')">
+  <div class="sb-btn" id="btn-ch3p" onclick="onCh3pTap()">
     <span>⋮⋮</span><sub>PH</sub>
   </div>
   <div class="sb-sep"></div>
@@ -366,7 +366,7 @@ function selectMode(m) {
   if (btn) btn.classList.add('active');
 
   // Update top bar
-  const labels = {ch12:'F:', duty:'D:', ch3:'F3:', d3:'D3:', ch3p:'PH:'};
+  const labels = {ch12:'F:', duty:'D:', ch3: ch3SubMode===1 ? 'F≈:' : 'F3:', d3:'D3:', ch3p:'PH:'};
   const units  = {ch12:'Hz', duty:'%', ch3:'Hz', d3:'%', ch3p:'%'};
   const vals   = {ch12:S.freq, duty:S.duty, ch3:S.f3, d3:S.d3, ch3p:S.ph};
   document.getElementById('top-label').textContent = labels[m] || '';
@@ -431,7 +431,11 @@ function setCurVal(v) {
     S.f3 = v;
     document.getElementById('sl-f3').value = v;
     document.getElementById('sv-f3').textContent = fmtHz(v);
-    sendRaw('F3:'+v+'\n');
+    if (ch3SubMode === 1) {
+      sendRaw('FC:'+v+'\n'); // несущая частота CH3 независимо
+    } else {
+      sendRaw('F3:'+v+'\n');
+    }
   } else if (currentMode === 'd3') {
     S.d3 = v;
     document.getElementById('sl-d3').value = v;
@@ -444,7 +448,7 @@ function setCurVal(v) {
     document.getElementById('sv-ph').textContent = v;
     sendRaw('P3:'+v+'\n');
   }
-  const units = {ch12:'Hz', duty:'%', ch3:'Hz', ch3f:'Hz', d3:'%', ch3p:'%'};
+  const units = {ch12:'Hz', duty:'%', ch3:'Hz', d3:'%', ch3p:'%'};
   buildDigits(v, units[currentMode]);
   updateSum();
   drawScope();
@@ -468,14 +472,14 @@ function closePopup(e) {
   if (!document.getElementById('dpop').contains(e.target)) {
     document.getElementById('dpop').classList.remove('show');
     activeDigitIdx = -1;
-    const units = {ch12:'Hz', duty:'%', ch3:'Hz', ch3f:'Hz', d3:'%', ch3p:'%'};
+    const units = {ch12:'Hz', duty:'%', ch3:'Hz', d3:'%', ch3p:'%'};
     buildDigits(getCurVal(), units[currentMode]);
   }
 }
 
 function digitChg(dir) {
   if (activeDigitIdx < 0) return;
-  const units = {ch12:'Hz', duty:'%', ch3:'Hz', ch3f:'Hz', d3:'%', ch3p:'%'};
+  const units = {ch12:'Hz', duty:'%', ch3:'Hz', d3:'%', ch3p:'%'};
   const unit = units[currentMode];
   const isPct = unit === '%';
   const s = isPct ? String(getCurVal()).padStart(2,'0') : String(getCurVal()).padStart(7,'0');
@@ -572,9 +576,11 @@ let ch3pActive = 'ph';
 let x2Active = false;
 let ch3LastTap = 0;
 let pllActive = false;
-let ch3Linked = true;  // привязка CH3 к CH1
-let ch3SubMode = 0;   // 0=частота пачки, 1=несущая частота CH3
 let invActive = false;
+let ch3Linked = true;  // CH3 привязана к CH1
+let ch3SubMode = 0;   // 0=частота пачки f3, 1=несущая частота
+let ch12LastTap = 0;
+let ch3pLastTap = 0;
 
 function toggleINV() {
   invActive = !invActive;
@@ -595,20 +601,54 @@ function togglePLL() {
 function onCh3Tap() {
   const now = Date.now();
   if (now - ch3LastTap < 500) {
+    // Двойное нажатие — переключение режима пачка/несущая
+    ch3SubMode = ch3SubMode === 0 ? 1 : 0;
+    document.getElementById('ch3-sub').textContent = ch3SubMode === 1 ? '≈' : '3';
+    selectMode('ch3');
+    drawScope();
+  } else {
+    // Одиночное — выбрать режим ch3
+    selectMode('ch3');
+  }
+  ch3LastTap = now;
+}
+
+function onCh3pTap() {
+  const now = Date.now();
+  if (now - ch3pLastTap < 500) {
     // Двойное нажатие — X2
     x2Active = !x2Active;
     sendRaw('X2:'+(x2Active?1:0)+'\n');
     const btn = document.getElementById('btn-ch3');
     btn.style.borderColor = x2Active ? 'var(--yellow)' : '';
     btn.style.boxShadow = x2Active ? '0 0 10px var(--yellow)' : '';
-    document.getElementById('ch3-sub').textContent = x2Active ? '×2' : '3';
+    document.getElementById('ch3-sub').textContent = x2Active ? '×2' : (ch3SubMode===1 ? '≈' : '3');
     drawScope();
   } else {
-    // Одиночное — переключаем режим
-    selectMode('ch3');
+    // Одиночное — выбрать фазу
+    selectMode('ch3p');
   }
-  ch3LastTap = now;
-} // активный параметр: 'ph' или 'n3'
+  ch3pLastTap = now;
+}
+
+function onCh12Tap() {
+  const now = Date.now();
+  if (now - ch12LastTap < 500) {
+    // Двойное нажатие — привязка/отвязка CH3
+    ch3Linked = !ch3Linked;
+    sendRaw('LK:'+(ch3Linked?1:0)+'\n');
+    const btn = document.getElementById('btn-ch12');
+    btn.style.borderColor = !ch3Linked ? 'var(--orange)' : '';
+    btn.style.boxShadow = !ch3Linked ? '0 0 10px var(--orange)' : '';
+    document.getElementById('ch12-sub').textContent = !ch3Linked ? '⊥' : '1/2';
+  } else {
+    // Одиночное — выбрать режим ch12
+    selectMode('ch12');
+  }
+  ch12LastTap = now;
+}
+
+// активный параметр: 'ph' или 'n3'
 
 function setCh3pActive(param) {
   ch3pActive = param;
@@ -958,8 +998,8 @@ window.onUsbEvent = function(event) {
           document.getElementById('sv-n3').textContent = S.n3;
           document.getElementById('duty-top-val').textContent =
             currentMode === 'd3' ? S.d3 : S.duty;
-          const units = {ch12:'Hz', duty:'%', ch3:'Hz', ch3f:'Hz', d3:'%', ch3p:'%'};
-          const vals = {ch12:S.freq, duty:S.duty, ch3:S.f3, ch3f:S.f3, d3:S.d3, ch3p:S.ph};
+          const units = {ch12:'Hz', duty:'%', ch3:'Hz', d3:'%', ch3p:'%'};
+          const vals = {ch12:S.freq, duty:S.duty, ch3:S.f3, d3:S.d3, ch3p:S.ph};
           buildDigits(vals[currentMode]||0, units[currentMode]||'');
           updateSum(); drawScope();
         }
@@ -968,7 +1008,7 @@ window.onUsbEvent = function(event) {
           const b12 = document.getElementById('btn-ch12');
           b12.style.borderColor = !ch3Linked ? 'var(--orange)' : '';
           b12.style.boxShadow = !ch3Linked ? '0 0 10px var(--orange)' : '';
-          b12.querySelector('sub').textContent = !ch3Linked ? '⊥' : '1/2';
+          document.getElementById('ch12-sub').textContent = !ch3Linked ? '⊥' : '1/2';
         }
         if (d.x2 !== undefined && d.x2 !== (x2Active?1:0)) {
           x2Active = d.x2 === 1;
