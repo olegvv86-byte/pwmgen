@@ -431,11 +431,7 @@ function setCurVal(v) {
     S.f3 = v;
     document.getElementById('sl-f3').value = v;
     document.getElementById('sv-f3').textContent = fmtHz(v);
-    if (ch3SubMode === 1) {
-      sendRaw('FC:'+v+'\n'); // несущая частота CH3 независимо
-    } else {
-      sendRaw('F3:'+v+'\n');
-    }
+    sendRaw((ch3SubMode === 1 ? 'FC:' : 'F3:') + v + '\n');
   } else if (currentMode === 'd3') {
     S.d3 = v;
     document.getElementById('sl-d3').value = v;
@@ -526,7 +522,8 @@ function onF3Slider(v) {
   S.f3 = parseInt(v);
   document.getElementById('sv-f3').textContent = fmtHz(S.f3);
   buildDigits(S.f3, 'Hz');
-  throttleSend('f3', 'F3:'+S.f3+'\n', 40);
+  const cmd = ch3SubMode === 1 ? 'FC:' : 'F3:';
+  throttleSend('f3', cmd+S.f3+'\n', 40);
   updateSum(); drawScope();
 }
 function onD3Slider(v) {
@@ -984,6 +981,7 @@ window.onUsbEvent = function(event) {
         // Обновляем только если ползунок не активен
         if (!sliderActive) {
           S.freq=d.f1; S.duty=d.d1; S.f3=d.f3; S.d3=d.d3; S.n3=d.n3; S.ph=d.p3;
+          if (d.fc !== undefined) S.fc = d.fc;
           document.getElementById('sl-freq').value = S.freq;
           document.getElementById('sl-duty').value = S.duty;
           document.getElementById('sl-f3').value = S.f3;
