@@ -343,8 +343,8 @@ input[type=range].cyan::-webkit-slider-thumb { background: var(--cyan); box-shad
 
 <script>
 // ─── State ───
-const S = { freq:20000, duty:50, f3:1000000, d3:50, n3:5, ph:0 };
-const steps = { freq:10, duty:1, f3:100000, d3:1, ph:1, n3:1 };
+const S = { freq:20000, duty:50, f3:1000000, fc:1000, d3:50, n3:5, ph:0 };
+const steps = { freq:10, duty:1, f3:100000, fc:10, d3:1, ph:1, n3:1 };
 let currentMode = 'ch12';
 let activeDigitIdx = -1;
 let connected = false;
@@ -368,7 +368,7 @@ function selectMode(m) {
   // Update top bar
   const labels = {ch12:'F:', duty:'D:', ch3: ch3SubMode===1 ? 'F≈:' : 'F3:', d3:'D3:', ch3p:'PH:'};
   const units  = {ch12:'Hz', duty:'%', ch3:'Hz', d3:'%', ch3p:'%'};
-  const vals   = {ch12:S.freq, duty:S.duty, ch3:S.f3, d3:S.d3, ch3p:S.ph};
+  const vals   = {ch12:S.freq, duty:S.duty, ch3: ch3SubMode===1 ? S.fc : S.f3, d3:S.d3, ch3p:S.ph};
   document.getElementById('top-label').textContent = labels[m] || '';
   document.getElementById('top-unit').textContent = units[m] || '';
 
@@ -405,13 +405,17 @@ function buildDigits(val, unit) {
 }
 
 function getCurVal() {
-  const map = {ch12:S.freq, duty:S.duty, ch3:S.f3, d3:S.d3, ch3p:S.ph};
+  const map = {ch12:S.freq, duty:S.duty, ch3: ch3SubMode===1 ? S.fc : S.f3, d3:S.d3, ch3p:S.ph};
   return map[currentMode] || 0;
 }
 
 function setCurVal(v) {
   const limits = {
-    ch12:[100,500000], duty:[1,99], ch3:[500000,10000000], d3:[1,99], ch3p:[0,99]
+    ch12:[100,500000],
+    duty:[1,99],
+    ch3: ch3SubMode===1 ? [50,100000] : [500000,10000000],
+    d3:[1,99],
+    ch3p:[0,999]
   };
   const [mn,mx] = limits[currentMode] || [0,999999];
   v = Math.max(mn, Math.min(mx, v));
@@ -428,10 +432,15 @@ function setCurVal(v) {
     document.getElementById('duty-top-val').textContent = v;
     sendRaw('D1:'+v+'\n');
   } else if (currentMode === 'ch3') {
-    S.f3 = v;
+    if (ch3SubMode === 1) {
+      S.fc = v;
+      sendRaw('FC:'+v+'\n');
+    } else {
+      S.f3 = v;
+      sendRaw('F3:'+v+'\n');
+    }
     document.getElementById('sl-f3').value = v;
     document.getElementById('sv-f3').textContent = fmtHz(v);
-    sendRaw((ch3SubMode === 1 ? 'FC:' : 'F3:') + v + '\n');
   } else if (currentMode === 'd3') {
     S.d3 = v;
     document.getElementById('sl-d3').value = v;
@@ -519,11 +528,16 @@ function onDutySlider(v) {
   updateSum(); drawScope();
 }
 function onF3Slider(v) {
-  S.f3 = parseInt(v);
-  document.getElementById('sv-f3').textContent = fmtHz(S.f3);
-  buildDigits(S.f3, 'Hz');
-  const cmd = ch3SubMode === 1 ? 'FC:' : 'F3:';
-  throttleSend('f3', cmd+S.f3+'\n', 40);
+  v = parseInt(v);
+  if (ch3SubMode === 1) {
+    S.fc = v;
+    throttleSend('f3', 'FC:'+v+'\n', 40);
+  } else {
+    S.f3 = v;
+    throttleSend('f3', 'F3:'+v+'\n', 40);
+  }
+  document.getElementById('sv-f3').textContent = fmtHz(v);
+  buildDigits(v, 'Hz');
   updateSum(); drawScope();
 }
 function onD3Slider(v) {
@@ -601,6 +615,21 @@ function onCh3Tap() {
     // Двойное нажатие — переключение режима пачка/несущая
     ch3SubMode = ch3SubMode === 0 ? 1 : 0;
     document.getElementById('ch3-sub').textContent = ch3SubMode === 1 ? '≈' : '3';
+
+    // Переключаем диапазон слайдера на F3 (500к-10М) или FC (50-100к)
+    const sl = document.getElementById('sl-f3');
+    if (ch3SubMode === 1) {
+      sl.min = 50;
+      sl.max = 100000;
+      sl.value = S.fc;
+      document.getElementById('sv-f3').textContent = fmtHz(S.fc);
+    } else {
+      sl.min = 500000;
+      sl.max = 10000000;
+      sl.value = S.f3;
+      document.getElementById('sv-f3').textContent = fmtHz(S.f3);
+    }
+
     selectMode('ch3');
     drawScope();
   } else {
@@ -678,8 +707,11 @@ function fmtHz(v) {
 }
 
 function updateSum() {
+  const ch3line = ch3Linked
+    ? 'CH3: '+fmtHz(S.f3)+'Hz D:'+S.d3+'% ×'+S.n3+' φ'+S.ph+'%'
+    : 'CH3⊥ '+fmtHz(S.f3)+'Hz D:'+S.d3+'% ×'+S.n3+' FC:'+fmtHz(S.fc)+'Hz';
   document.getElementById('ssum').textContent =
-    'CH1/2: '+fmtHz(S.freq)+'Hz D:'+S.duty+'% | CH3: '+fmtHz(S.f3)+'Hz D:'+S.d3+'% ×'+S.n3+' φ'+S.ph+'%';
+    'CH1/2: '+fmtHz(S.freq)+'Hz D:'+S.duty+'% | '+ch3line;
 }
 
 // ─── Oscilloscope ───
@@ -818,9 +850,14 @@ function drawScope() {
   }
 
   // ─── Draw burst (CH3) ───
-  function drawBurst(yTop, duty3, color, count, phase, cycles) {
+  // spacingPx — расстояние между началами пачек в пикселях.
+  //   В привязанном режиме = период CH1 (cw)
+  //   В свободном  режиме  = период FC
+  function drawBurst(yTop, duty3, color, count, phase, cycles, spacingPx) {
     const cw = W / cycles;
-    // Фаза — сдвиг пачки вправо (0-99% от периода CH1)
+    if (spacingPx === undefined) spacingPx = cw;
+    // Фаза задана в промилле от периода CH1 (в свободном режиме фазы по CH1 нет,
+    // но визуально удобно оставить смещение — мешать не должно)
     const phOff = phase / 1000 * cw;
 
     ctx.strokeStyle = color; ctx.lineWidth = 2 * devicePixelRatio;
@@ -831,13 +868,11 @@ function drawScope() {
     const impW = Math.max(2, cw / freqRatio);
     const hiW3 = impW * duty3 / 100;
 
-    // Первый импульс первой пачки на экране
-    // Пачки повторяются каждые cw пикселей (период CH1)
-    // Внутри каждой пачки count импульсов через impW
-    const firstBurst = phOff % cw - cw; // начало первой пачки левее экрана
-    
-    for (let i = 0; i * cw + firstBurst < W + cw * 2; i++) {
-      const bStart = firstBurst + i * cw;
+    // Начало первой пачки левее экрана
+    const firstBurst = (phOff % spacingPx) - spacingPx;
+
+    for (let i = 0; i * spacingPx + firstBurst < W + spacingPx * 2; i++) {
+      const bStart = firstBurst + i * spacingPx;
       for (let j = 0; j < count; j++) {
         const ix = bStart + j * impW;
         if (ix + hiW3 > 0 && ix < W) {
@@ -926,12 +961,22 @@ function drawScope() {
     // Обычный режим — 3 канала
     drawPWM(0,      S.duty, '#00ff88', cycles, 0);
     drawPWM(rowH,   S.duty, '#ff6600', cycles, 0.5);
+
+    // В свободном режиме шаг между пачками = период FC
+    // В привязанном — период CH1 (передаём undefined, drawBurst подставит cw)
+    let burstSpacing;
+    if (!ch3Linked) {
+      const cw = W / cycles;
+      // Период FC относительно периода CH1: T_fc/T_ch1 = freq/fc
+      burstSpacing = cw * (S.freq / Math.max(50, S.fc));
+    }
+
     // CH3 пачки — если X2 то вторая пачка со сдвигом 50% периода CH1
-    drawBurst(rowH*2, S.d3, '#00aaff', S.n3, S.ph, cycles);
+    drawBurst(rowH*2, S.d3, '#00aaff', S.n3, S.ph, cycles, burstSpacing);
     if (x2Active) {
       // Вторая пачка сдвинута на 50% периода CH1 (в фазу CH2)
       const ph2 = (S.ph + 500) % 1000;
-      drawBurst(rowH*2, S.d3, '#aa44ff', S.n3, ph2, cycles);
+      drawBurst(rowH*2, S.d3, '#aa44ff', S.n3, ph2, cycles, burstSpacing);
     }
   }
 
@@ -944,10 +989,13 @@ function drawScope() {
   ctx.font = (8*devicePixelRatio)+'px Share Tech Mono';
   const tbTxt = windowMs >= 1 ? windowMs.toFixed(1)+'ms/div' : (windowMs*1000).toFixed(0)+'us/div';
   ctx.fillText(tbTxt, W - 60*devicePixelRatio, H - 4*devicePixelRatio);
+  const ch3label = ch3Linked
+    ? 'CH3 '+fmtHz(S.f3)+'Hz ×'+S.n3+' D:'+S.d3+'% φ'+S.ph+'%'
+    : 'CH3⊥ '+fmtHz(S.f3)+'Hz ×'+S.n3+' D:'+S.d3+'% FC:'+fmtHz(S.fc)+'Hz';
   [
     ['CH1 '+fmtHz(S.freq)+'Hz D:'+S.duty+'%', '#00ff88', 0],
     ['CH2 '+fmtHz(S.freq)+'Hz D:'+S.duty+'%', '#ff6600', rowH],
-    ['CH3 '+fmtHz(S.f3)+'Hz ×'+S.n3+' D:'+S.d3+'% φ'+S.ph+'%', '#00aaff', rowH*2]
+    [ch3label, '#00aaff', rowH*2]
   ].forEach(([txt, col, y]) => {
     ctx.fillStyle = col+'99'; ctx.fillRect(0, y, W, 1);
     ctx.fillStyle = col;
@@ -984,20 +1032,22 @@ window.onUsbEvent = function(event) {
           if (d.fc !== undefined) S.fc = d.fc;
           document.getElementById('sl-freq').value = S.freq;
           document.getElementById('sl-duty').value = S.duty;
-          document.getElementById('sl-f3').value = S.f3;
+          // sl-f3 показывает F3 или FC в зависимости от текущего ch3SubMode
+          const f3val = ch3SubMode === 1 ? S.fc : S.f3;
+          document.getElementById('sl-f3').value = f3val;
           document.getElementById('sl-d3').value = S.d3;
           document.getElementById('sl-ph').value = S.ph;
           document.getElementById('sl-n3').value = S.n3;
           document.getElementById('sv-freq').textContent = S.freq;
           document.getElementById('sv-duty').textContent = S.duty;
-          document.getElementById('sv-f3').textContent = fmtHz(S.f3);
+          document.getElementById('sv-f3').textContent = fmtHz(f3val);
           document.getElementById('sv-d3').textContent = S.d3;
           document.getElementById('sv-ph').textContent = S.ph;
           document.getElementById('sv-n3').textContent = S.n3;
           document.getElementById('duty-top-val').textContent =
             currentMode === 'd3' ? S.d3 : S.duty;
           const units = {ch12:'Hz', duty:'%', ch3:'Hz', d3:'%', ch3p:'%'};
-          const vals = {ch12:S.freq, duty:S.duty, ch3:S.f3, d3:S.d3, ch3p:S.ph};
+          const vals = {ch12:S.freq, duty:S.duty, ch3:f3val, d3:S.d3, ch3p:S.ph};
           buildDigits(vals[currentMode]||0, units[currentMode]||'');
           updateSum(); drawScope();
         }
