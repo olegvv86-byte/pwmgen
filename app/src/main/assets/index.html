@@ -288,11 +288,17 @@ input[type=range].cyan::-webkit-slider-thumb { background: var(--cyan); box-shad
     <!-- CH3 freq -->
     <div id="panel-ch3" style="display:none">
       <div class="slider-row">
-        <span class="sl-name" style="color:var(--cyan)">F3</span>
+        <span class="sl-name" style="color:var(--cyan)" id="lbl-f3">F3</span>
         <input type="range" id="sl-f3" min="500000" max="10000000" value="1000000" class="cyan"
                oninput="onF3Slider(this.value)">
         <span class="sl-val" id="sv-f3" style="color:var(--cyan)">1M</span>
         <span class="sl-unit">Hz</span>
+      </div>
+      <!-- Переключатель режима частоты CH3: импульсы в пачке (F3) / несущая (FC) -->
+      <div class="step-row" id="row-ch3-mode">
+        <span class="step-label">режим</span>
+        <button class="step-btn active-blue" id="btn-mode-f3" onclick="setCh3FreqMode(0)">в пачке</button>
+        <button class="step-btn" id="btn-mode-fc" onclick="setCh3FreqMode(1)">несущая</button>
       </div>
     </div>
 
@@ -609,31 +615,47 @@ function togglePLL() {
   document.getElementById('pll-sub').textContent = pllActive ? 'ON' : 'ЧЧ';
 }
 
+// Явный переключатель F3 ⇄ FC в панели CH3
+function setCh3FreqMode(m) {
+  ch3SubMode = m;
+
+  const sl = document.getElementById('sl-f3');
+  const lbl = document.getElementById('lbl-f3');
+
+  if (m === 1) {
+    sl.min = 50;
+    sl.max = 100000;
+    sl.value = S.fc;
+    document.getElementById('sv-f3').textContent = fmtHz(S.fc);
+    lbl.textContent = 'FC';
+  } else {
+    sl.min = 500000;
+    sl.max = 10000000;
+    sl.value = S.f3;
+    document.getElementById('sv-f3').textContent = fmtHz(S.f3);
+    lbl.textContent = 'F3';
+  }
+
+  // Кнопки режима
+  document.getElementById('btn-mode-f3').classList.toggle('active-blue', m === 0);
+  document.getElementById('btn-mode-fc').classList.toggle('active-blue', m === 1);
+
+  // Метка верхней панели и индикатор сбоку
+  document.getElementById('ch3-sub').textContent = m === 1 ? '≈' : '3';
+  document.getElementById('top-label').textContent = m === 1 ? 'F≈:' : 'F3:';
+  buildDigits(m === 1 ? S.fc : S.f3, 'Hz');
+
+  updateSum();
+  drawScope();
+}
+
 function onCh3Tap() {
   const now = Date.now();
   if (now - ch3LastTap < 500) {
-    // Двойное нажатие — переключение режима пачка/несущая
-    ch3SubMode = ch3SubMode === 0 ? 1 : 0;
-    document.getElementById('ch3-sub').textContent = ch3SubMode === 1 ? '≈' : '3';
-
-    // Переключаем диапазон слайдера на F3 (500к-10М) или FC (50-100к)
-    const sl = document.getElementById('sl-f3');
-    if (ch3SubMode === 1) {
-      sl.min = 50;
-      sl.max = 100000;
-      sl.value = S.fc;
-      document.getElementById('sv-f3').textContent = fmtHz(S.fc);
-    } else {
-      sl.min = 500000;
-      sl.max = 10000000;
-      sl.value = S.f3;
-      document.getElementById('sv-f3').textContent = fmtHz(S.f3);
-    }
-
-    selectMode('ch3');
-    drawScope();
+    // Двойной тап — быстрое переключение F3 ⇄ FC (для удобства)
+    setCh3FreqMode(ch3SubMode === 0 ? 1 : 0);
   } else {
-    // Одиночное — выбрать режим ch3
+    // Одиночный — выбрать режим CH3
     selectMode('ch3');
   }
   ch3LastTap = now;
