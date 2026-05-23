@@ -224,8 +224,9 @@ input[type=range].cyan::-webkit-slider-thumb { background: var(--cyan); box-shad
     <span>⋮⋮</span><sub>PH</sub>
   </div>
   <div class="sb-sep"></div>
-  <div class="sb-btn" id="btn-pll" onclick="togglePLL()" title="ФАПЧ">
-    <span style="font-size:9px">ФАП</span><sub id="pll-sub">ЧЧ</sub>
+  <div class="sb-btn" id="btn-pll" onclick="onPllTap()" title="ФАПЧ — 1 тап вкл/выкл, 2 тапа смена режима">
+    <span style="font-size:9px">ФАПЧ</span><sub id="pll-sub">OFF</sub>
+    <div id="pll-mode" style="font-size:8px;color:var(--yellow);margin-top:1px">CH3</div>
   </div>
   <div class="sb-btn" id="btn-inv" onclick="toggleINV()" title="Инверсия сигналов">
     <span style="font-size:9px">INV</span><sub id="inv-sub">OFF</sub>
@@ -598,6 +599,8 @@ let ch3Linked = true;  // CH3 привязана к CH1
 let ch3SubMode = 0;   // 0=частота пачки f3, 1=несущая частота
 let ch12LastTap = 0;
 let ch3pLastTap = 0;
+let pllLastTap = 0;
+let pllMode = 0;   // 0 = PHASE (двигать пачку), 1 = FREQ (менять частоту)
 
 function toggleINV() {
   invActive = !invActive;
@@ -607,12 +610,30 @@ function toggleINV() {
   document.getElementById('inv-sub').textContent = invActive ? 'ON' : 'OFF';
 }
 
-function togglePLL() {
-  pllActive = !pllActive;
-  sendRaw('PL:'+(pllActive?1:0)+'\n');
+function updatePllLabel() {
+  // Надпись режима: CH3 = пачка двигается по фазе, Hz = двигается частота
+  const ml = document.getElementById('pll-mode');
+  ml.textContent = pllMode === 1 ? 'Hz' : 'CH3';
+  ml.style.color = pllMode === 1 ? 'var(--orange)' : 'var(--yellow)';
+  document.getElementById('pll-sub').textContent = pllActive ? 'ON' : 'OFF';
   const btn = document.getElementById('btn-pll');
   btn.classList.toggle('active', pllActive);
-  document.getElementById('pll-sub').textContent = pllActive ? 'ON' : 'ЧЧ';
+}
+
+function onPllTap() {
+  const now = Date.now();
+  if (now - pllLastTap < 500) {
+    // Двойное нажатие — выбор режима ФАПЧ: CH3 (фаза) ⇄ Hz (частота)
+    pllMode = pllMode === 0 ? 1 : 0;
+    sendRaw('PM:'+pllMode+'\n');
+    updatePllLabel();
+  } else {
+    // Одиночное нажатие — включить/выключить ФАПЧ
+    pllActive = !pllActive;
+    sendRaw('PL:'+(pllActive?1:0)+'\n');
+    updatePllLabel();
+  }
+  pllLastTap = now;
 }
 
 // Явный переключатель F3 ⇄ FC в панели CH3
@@ -1089,8 +1110,12 @@ window.onUsbEvent = function(event) {
         }
         if (d.pl !== undefined) {
           pllActive = d.pl === 1;
-          document.getElementById('btn-pll').classList.toggle('active', pllActive);
-          document.getElementById('pll-sub').textContent = pllActive ? 'ON' : 'ЧЧ';
+        }
+        if (d.pm !== undefined) {
+          pllMode = d.pm;
+        }
+        if (d.pl !== undefined || d.pm !== undefined) {
+          updatePllLabel();
         }
         if (d.iv !== undefined) {
           invActive = d.iv === 1;
