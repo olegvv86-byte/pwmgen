@@ -268,7 +268,7 @@ input[type=range].cyan::-webkit-slider-thumb { background: var(--cyan); box-shad
     <div id="panel-ch12">
       <div class="slider-row">
         <span class="sl-name" style="color:var(--yellow)">FREQ</span>
-        <input type="range" id="sl-freq" min="100" max="500000" value="20000"
+        <input type="range" id="sl-freq" min="10" max="500000" value="20000"
                oninput="onFreqSlider(this.value)">
         <span class="sl-val" id="sv-freq" style="color:var(--yellow)">20000</span>
         <span class="sl-unit">Hz</span>
@@ -290,7 +290,7 @@ input[type=range].cyan::-webkit-slider-thumb { background: var(--cyan); box-shad
     <div id="panel-ch3" style="display:none">
       <div class="slider-row">
         <span class="sl-name" style="color:var(--cyan)" id="lbl-f3">F3</span>
-        <input type="range" id="sl-f3" min="500000" max="10000000" value="1000000" class="cyan"
+        <input type="range" id="sl-f3" min="1000" max="10000000" value="1000000" class="cyan"
                oninput="onF3Slider(this.value)">
         <span class="sl-val" id="sv-f3" style="color:var(--cyan)">1M</span>
         <span class="sl-unit">Hz</span>
@@ -325,7 +325,7 @@ input[type=range].cyan::-webkit-slider-thumb { background: var(--cyan); box-shad
       </div>
       <div class="slider-row" onclick="setCh3pActive('n3')" style="cursor:pointer">
         <span class="sl-name" id="lbl-n3" style="color:var(--dim)">CNT</span>
-        <input type="range" id="sl-n3" min="1" max="10" value="5" class="cyan"
+        <input type="range" id="sl-n3" min="1" max="100" value="5" class="cyan"
                oninput="onN3Slider(this.value)" style="pointer-events:none; opacity:0.4">
         <span class="sl-val" id="sv-n3" style="color:var(--dim)">5</span>
         <span class="sl-unit">шт</span>
@@ -418,9 +418,9 @@ function getCurVal() {
 
 function setCurVal(v) {
   const limits = {
-    ch12:[100,500000],
+    ch12:[10,500000],
     duty:[1,99],
-    ch3: ch3SubMode===1 ? [50,100000] : [500000,10000000],
+    ch3: ch3SubMode===1 ? [50,100000] : [1000,10000000],
     d3:[1,99],
     ch3p:[0,999]
   };
@@ -650,7 +650,7 @@ function setCh3FreqMode(m) {
     document.getElementById('sv-f3').textContent = fmtHz(S.fc);
     lbl.textContent = 'FC';
   } else {
-    sl.min = 500000;
+    sl.min = 1000;
     sl.max = 10000000;
     sl.value = S.f3;
     document.getElementById('sv-f3').textContent = fmtHz(S.f3);
