@@ -592,7 +592,7 @@ function onPhSlider(v) {
 function onN3Slider(v) {
   S.n3 = parseInt(v);
   document.getElementById('sv-n3').textContent = S.n3;
-  throttleSend('n3', 'N3:'+S.n3+'\n');
+  if (!isWifiMode()) throttleSend('n3', 'N3:'+S.n3+'\n');
   updateSum(); _schedScope();
 }
 
@@ -606,6 +606,9 @@ document.addEventListener('touchstart', e => {
 document.addEventListener('touchend', e => {
   if (e.target && e.target.type === 'range') {
     setTimeout(() => { sliderActive = false; }, 1500);
+    if (isWifiMode() && e.target.id === 'sl-n3') {
+      sendRaw('N3:'+S.n3+'\n');
+    }
     ['freq','duty','f3','d3','ph','n3'].forEach(flushThrottle);
   }
 }, {passive:true});
