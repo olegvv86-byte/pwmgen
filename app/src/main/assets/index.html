@@ -355,7 +355,6 @@ const steps = { freq:10, duty:1, f3:100000, fc:10, d3:1, ph:1, n3:1 };
 let currentMode = 'ch12';
 let activeDigitIdx = -1;
 let connected = false;
-const scopeDpr = Math.min(window.devicePixelRatio || 1, 1.5);
 
 // ─── Mode ───
 function selectMode(m) {
@@ -502,37 +501,10 @@ function digitChg(dir) {
   document.getElementById('dpval').textContent = newS[activeDigitIdx] || '0';
 }
 
-// ─── RAF-throttle для drawScope (телефон не тянет 60 canvas redraws/sec) ───
-let _scopeRafId = 0;
-function _schedScope() {
-  if (!_scopeRafId) {
-    _scopeRafId = requestAnimationFrame(() => { _scopeRafId = 0; drawScope(); });
-  }
-}
-
-function isWifiMode() {
-  return typeof AndroidUSB !== 'undefined' && AndroidUSB.getMode() === 'wifi';
-}
-
-function cmdInterval() {
-  return isWifiMode() ? 50 : 40;
-}
-
-// ─── Throttle отправки команд (слайдеры) ───
+// ─── Throttle отправки команд ───
 const throttleLast = {};
 const throttleTimer = {};
-function flushThrottle(key) {
-  if (throttleLast[key]) {
-    sendRaw(throttleLast[key]);
-    throttleLast[key] = null;
-  }
-  if (throttleTimer[key]) {
-    clearInterval(throttleTimer[key]);
-    throttleTimer[key] = null;
-  }
-}
 function throttleSend(key, cmd, interval) {
-  const ms = interval || cmdInterval();
   throttleLast[key] = cmd;
   if (!throttleTimer[key]) {
     throttleTimer[key] = setInterval(() => {
@@ -543,57 +515,57 @@ function throttleSend(key, cmd, interval) {
         clearInterval(throttleTimer[key]);
         throttleTimer[key] = null;
       }
-    }, ms);
+    }, interval || 40);
   }
 }
 
 function onFreqSlider(v) {
   S.freq = parseInt(v);
   document.getElementById('sv-freq').textContent = S.freq;
-  if (!sliderActive) buildDigits(S.freq, 'Hz');
-  throttleSend('freq', 'F1:'+S.freq+'\n');
-  updateSum(); _schedScope();
+  buildDigits(S.freq, 'Hz');
+  throttleSend('freq', 'F1:'+S.freq+'\n', 40);
+  updateSum(); drawScope();
 }
 function onDutySlider(v) {
   S.duty = parseInt(v);
   document.getElementById('sv-duty').textContent = S.duty;
   document.getElementById('duty-top-val').textContent = S.duty;
-  if (!sliderActive) buildDigits(S.duty, '%');
-  throttleSend('duty', 'D1:'+S.duty+'\n');
-  updateSum(); _schedScope();
+  buildDigits(S.duty, '%');
+  throttleSend('duty', 'D1:'+S.duty+'\n', 40);
+  updateSum(); drawScope();
 }
 function onF3Slider(v) {
   v = parseInt(v);
   if (ch3SubMode === 1) {
     S.fc = v;
-    throttleSend('f3', 'FC:'+v+'\n');
+    throttleSend('f3', 'FC:'+v+'\n', 40);
   } else {
     S.f3 = v;
-    throttleSend('f3', 'F3:'+v+'\n');
+    throttleSend('f3', 'F3:'+v+'\n', 40);
   }
   document.getElementById('sv-f3').textContent = fmtHz(v);
-  if (!sliderActive) buildDigits(v, 'Hz');
-  updateSum(); _schedScope();
+  buildDigits(v, 'Hz');
+  updateSum(); drawScope();
 }
 function onD3Slider(v) {
   S.d3 = parseInt(v);
   document.getElementById('sv-d3').textContent = S.d3;
   document.getElementById('duty-top-val').textContent = S.d3;
-  if (!sliderActive) buildDigits(S.d3, '%');
-  throttleSend('d3', 'D3:'+S.d3+'\n');
-  updateSum(); _schedScope();
+  buildDigits(S.d3, '%');
+  throttleSend('d3', 'D3:'+S.d3+'\n', 40);
+  updateSum(); drawScope();
 }
 function onPhSlider(v) {
   S.ph = parseInt(v);
   document.getElementById('sv-ph').textContent = S.ph;
-  throttleSend('ph', 'P3:'+S.ph+'\n');
-  updateSum(); _schedScope();
+  throttleSend('ph', 'P3:'+S.ph+'\n', 40);
+  updateSum(); drawScope();
 }
 function onN3Slider(v) {
   S.n3 = parseInt(v);
   document.getElementById('sv-n3').textContent = S.n3;
-  if (!isWifiMode()) throttleSend('n3', 'N3:'+S.n3+'\n');
-  updateSum(); _schedScope();
+  throttleSend('n3', 'N3:'+S.n3+'\n', 40);
+  updateSum(); drawScope();
 }
 
 let sliderActive = false;
@@ -606,10 +578,6 @@ document.addEventListener('touchstart', e => {
 document.addEventListener('touchend', e => {
   if (e.target && e.target.type === 'range') {
     setTimeout(() => { sliderActive = false; }, 1500);
-    if (isWifiMode() && e.target.id === 'sl-n3') {
-      sendRaw('N3:'+S.n3+'\n');
-    }
-    ['freq','duty','f3','d3','ph','n3'].forEach(flushThrottle);
   }
 }, {passive:true});
 
@@ -855,13 +823,13 @@ function initGesture() {
       const worldCenter = pinchStartView + pinchCenterNorm;
       viewStart = worldCenter - pinchCenterNorm;
       timeScale = newScale;
-      _schedScope();
+      drawScope();
     } else if (e.touches.length === 1) {
       if (isPanning && zoomCH3) {
         const dx = e.touches[0].clientX - panStartX;
         const W = wrap.offsetWidth;
         viewStart = panStartView - dx / W;
-        _schedScope();
+        drawScope();
       } else if (phGesture) {
         const dx = e.touches[0].clientX - phStartX;
         const W = wrap.offsetWidth;
@@ -869,7 +837,7 @@ function initGesture() {
         S.ph = ((phStartVal + phDelta) % 1000 + 1000) % 1000;
         document.getElementById('sl-ph').value = S.ph;
         document.getElementById('sv-ph').textContent = S.ph;
-        _schedScope();
+        drawScope();
       }
     }
   }, {passive:true});
@@ -885,8 +853,8 @@ function initGesture() {
 function drawScope() {
   const canvas = document.getElementById('scope');
   const wrap = document.getElementById('scope-wrap');
-  const W = wrap.offsetWidth * scopeDpr;
-  const H = wrap.offsetHeight * scopeDpr;
+  const W = wrap.offsetWidth * devicePixelRatio;
+  const H = wrap.offsetHeight * devicePixelRatio;
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext('2d');
 
@@ -909,8 +877,8 @@ function drawScope() {
   function drawPWM(yTop, duty, color, cycles, phaseShift) {
     const cw = W / cycles;
     const phOff = (phaseShift || 0) * cw;
-    ctx.strokeStyle = color; ctx.lineWidth = 2 * scopeDpr;
-    ctx.shadowColor = color; ctx.shadowBlur = 3 * scopeDpr;
+    ctx.strokeStyle = color; ctx.lineWidth = 2 * devicePixelRatio;
+    ctx.shadowColor = color; ctx.shadowBlur = 3 * devicePixelRatio;
     ctx.beginPath();
     const hiW = cw * duty / 100;
     for (let i = -1; i < cycles + 1; i++) {
@@ -935,8 +903,8 @@ function drawScope() {
     // но визуально удобно оставить смещение — мешать не должно)
     const phOff = phase / 1000 * cw;
 
-    ctx.strokeStyle = color; ctx.lineWidth = 2 * scopeDpr;
-    ctx.shadowColor = color; ctx.shadowBlur = 3 * scopeDpr;
+    ctx.strokeStyle = color; ctx.lineWidth = 2 * devicePixelRatio;
+    ctx.shadowColor = color; ctx.shadowBlur = 3 * devicePixelRatio;
     ctx.beginPath();
 
     const freqRatio = S.f3 / S.freq;
@@ -989,8 +957,8 @@ function drawScope() {
     const impW3 = cw3;
     const hiW3 = impW3 * S.d3 / 100;
 
-    ctx.strokeStyle = '#00aaff'; ctx.lineWidth = 2.5 * scopeDpr;
-    ctx.shadowColor = '#00aaff'; ctx.shadowBlur = 5 * scopeDpr;
+    ctx.strokeStyle = '#00aaff'; ctx.lineWidth = 2.5 * devicePixelRatio;
+    ctx.shadowColor = '#00aaff'; ctx.shadowBlur = 5 * devicePixelRatio;
     ctx.beginPath();
 
     // Рисуем пачки — каждый период CH1 содержит N3 импульсов CH3
@@ -1017,8 +985,8 @@ function drawScope() {
       ctx.stroke();
     }
 
-    ctx.lineWidth = 2.5 * scopeDpr;
-    ctx.shadowBlur = 5 * scopeDpr;
+    ctx.lineWidth = 2.5 * devicePixelRatio;
+    ctx.shadowBlur = 5 * devicePixelRatio;
     ctx.shadowColor = '#00aaff';
     drawZoomBursts('#00aaff', 0);
     if (x2Active) {
@@ -1029,9 +997,9 @@ function drawScope() {
 
     // Метка
     ctx.fillStyle = '#00aaff';
-    ctx.font = (11*scopeDpr)+'px Share Tech Mono';
+    ctx.font = (11*devicePixelRatio)+'px Share Tech Mono';
     ctx.fillText('CH3 | '+fmtHz(S.f3)+'Hz D:'+S.d3+'% ×'+S.n3+' φ'+S.ph+'%',
-      4*scopeDpr, 14*scopeDpr);
+      4*devicePixelRatio, 14*devicePixelRatio);
   } else {
     // Обычный режим — 3 канала
     drawPWM(0,      S.duty, '#00ff88', cycles, 0);
@@ -1061,9 +1029,9 @@ function drawScope() {
   const periodMs = 1000 / S.freq;
   const windowMs = periodMs * cycles;
   ctx.fillStyle = '#2a3550';
-  ctx.font = (8*scopeDpr)+'px Share Tech Mono';
+  ctx.font = (8*devicePixelRatio)+'px Share Tech Mono';
   const tbTxt = windowMs >= 1 ? windowMs.toFixed(1)+'ms/div' : (windowMs*1000).toFixed(0)+'us/div';
-  ctx.fillText(tbTxt, W - 60*scopeDpr, H - 4*scopeDpr);
+  ctx.fillText(tbTxt, W - 60*devicePixelRatio, H - 4*devicePixelRatio);
   const ch3label = ch3Linked
     ? 'CH3 '+fmtHz(S.f3)+'Hz ×'+S.n3+' D:'+S.d3+'% φ'+S.ph+'%'
     : 'CH3⊥ '+fmtHz(S.f3)+'Hz ×'+S.n3+' D:'+S.d3+'% FC:'+fmtHz(S.fc)+'Hz';
@@ -1074,7 +1042,7 @@ function drawScope() {
   ].forEach(([txt, col, y]) => {
     ctx.fillStyle = col+'99'; ctx.fillRect(0, y, W, 1);
     ctx.fillStyle = col;
-    ctx.fillText(txt, 4*scopeDpr, y + 12*scopeDpr);
+    ctx.fillText(txt, 4*devicePixelRatio, y + 12*devicePixelRatio);
   });
 }
 
@@ -1087,12 +1055,10 @@ window.onUsbEvent = function(event) {
     document.getElementById('conn-sub').textContent = 'ON';
     const mode = (typeof AndroidUSB !== 'undefined') ? AndroidUSB.getMode() : 'usb';
     document.getElementById('conn-icon').textContent = mode === 'wifi' ? 'WiFi' : 'USB';
+    setTimeout(() => sendRaw('GET\n'), 500);
+    setTimeout(() => sendRaw('GET\n'), 1500);
     if (window._si) clearInterval(window._si);
-    if (mode !== 'wifi') {
-      setTimeout(() => sendRaw('GET\n'), 500);
-      setTimeout(() => sendRaw('GET\n'), 1500);
-      window._si = setInterval(() => { if (connected) sendRaw('GET\n'); }, 2000);
-    }
+    window._si = setInterval(() => { if (connected) sendRaw('GET\n'); }, 2000);
   } else if (event === 'disconnected') {
     connected = false;
     if (window._si) clearInterval(window._si);
@@ -1126,7 +1092,7 @@ window.onUsbEvent = function(event) {
           const units = {ch12:'Hz', duty:'%', ch3:'Hz', d3:'%', ch3p:'%'};
           const vals = {ch12:S.freq, duty:S.duty, ch3:f3val, d3:S.d3, ch3p:S.ph};
           buildDigits(vals[currentMode]||0, units[currentMode]||'');
-          updateSum(); _schedScope();
+          updateSum(); drawScope();
         }
         if (d.lk !== undefined) {
           ch3Linked = d.lk === 1;
@@ -1180,11 +1146,7 @@ function showConnMenu() {
 }
 
 function sendRaw(s) {
-  if (typeof AndroidUSB === 'undefined') return;
-  const cmd = (s || '').trim();
-  if (!cmd) return;
-  if (cmd === 'GET' && isWifiMode()) return;
-  AndroidUSB.send(s);
+  if (typeof AndroidUSB !== 'undefined') AndroidUSB.send(s);
 }
 
 // ─── Init ───
@@ -1193,7 +1155,7 @@ window.addEventListener('load', () => {
   updateSum();
   initGesture();
 
-  const ro = new ResizeObserver(() => _schedScope());
+  const ro = new ResizeObserver(() => drawScope());
   ro.observe(document.getElementById('scope-wrap'));
   drawScope();
   setTimeout(() => drawScope(), 300);
