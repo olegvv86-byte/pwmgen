@@ -501,13 +501,9 @@ function digitChg(dir) {
   document.getElementById('dpval').textContent = newS[activeDigitIdx] || '0';
 }
 
-// ─── Связь и отрисовка (оптимизация для телефона / Wi‑Fi) ───
+// ─── Отрисовка (лёгкая, не блокирует команды) ───
 const SCOPE_DPR = Math.min(window.devicePixelRatio || 1, 1.5);
 let _cW = 0, _cH = 0, _scopeRaf = 0;
-
-function isWifi() {
-  return typeof AndroidUSB !== 'undefined' && AndroidUSB.getMode() === 'wifi';
-}
 
 function schedScope() {
   if (!_scopeRaf) {
@@ -515,82 +511,70 @@ function schedScope() {
   }
 }
 
-// Debounce команд: при движении слайдера шлём только последнее значение после паузы
-const _cmdPending = {};
-const _cmdTimer = {};
-const CMD_MS = { fast: 50, heavy: 200 };
-
-function sendCmd(key, cmd, tier) {
-  const ms = tier === 'heavy' ? CMD_MS.heavy : CMD_MS.fast;
-  _cmdPending[key] = cmd;
-  if (_cmdTimer[key]) clearTimeout(_cmdTimer[key]);
-  _cmdTimer[key] = setTimeout(() => {
-    if (_cmdPending[key]) {
-      sendRaw(_cmdPending[key]);
-      _cmdPending[key] = null;
-    }
-    _cmdTimer[key] = null;
-  }, ms);
-}
-
-function flushCmd(key) {
-  if (_cmdTimer[key]) { clearTimeout(_cmdTimer[key]); _cmdTimer[key] = null; }
-  if (_cmdPending[key]) {
-    sendRaw(_cmdPending[key]);
-    _cmdPending[key] = null;
+// ─── Throttle отправки команд (как index_wifi — 40 мс, по одному шагу) ───
+const throttleLast = {};
+const throttleTimer = {};
+function throttleSend(key, cmd, interval) {
+  throttleLast[key] = cmd;
+  if (!throttleTimer[key]) {
+    throttleTimer[key] = setInterval(() => {
+      if (throttleLast[key]) {
+        sendRaw(throttleLast[key]);
+        throttleLast[key] = null;
+      } else {
+        clearInterval(throttleTimer[key]);
+        throttleTimer[key] = null;
+      }
+    }, interval || 40);
   }
-}
-
-function sliderUi(key, valText, buildVal, buildUnit) {
-  if (!sliderActive && buildVal !== undefined) buildDigits(buildVal, buildUnit);
 }
 
 function onFreqSlider(v) {
   S.freq = parseInt(v);
   document.getElementById('sv-freq').textContent = S.freq;
-  sliderUi('freq', null, S.freq, 'Hz');
-  sendCmd('freq', 'F1:'+S.freq+'\n', 'fast');
+  if (!sliderActive) buildDigits(S.freq, 'Hz');
+  throttleSend('freq', 'F1:'+S.freq+'\n', 40);
   updateSum(); schedScope();
 }
 function onDutySlider(v) {
   S.duty = parseInt(v);
   document.getElementById('sv-duty').textContent = S.duty;
   document.getElementById('duty-top-val').textContent = S.duty;
-  sliderUi('duty', null, S.duty, '%');
-  sendCmd('duty', 'D1:'+S.duty+'\n', 'fast');
+  if (!sliderActive) buildDigits(S.duty, '%');
+  throttleSend('duty', 'D1:'+S.duty+'\n', 40);
   updateSum(); schedScope();
 }
 function onF3Slider(v) {
   v = parseInt(v);
   if (ch3SubMode === 1) {
     S.fc = v;
-    sendCmd('f3', 'FC:'+v+'\n', 'heavy');
+    throttleSend('f3', 'FC:'+v+'\n', 40);
   } else {
     S.f3 = v;
-    sendCmd('f3', 'F3:'+v+'\n', 'heavy');
+    throttleSend('f3', 'F3:'+v+'\n', 40);
   }
   document.getElementById('sv-f3').textContent = fmtHz(v);
-  sliderUi('f3', null, v, 'Hz');
+  if (!sliderActive) buildDigits(v, 'Hz');
   updateSum(); schedScope();
 }
 function onD3Slider(v) {
   S.d3 = parseInt(v);
   document.getElementById('sv-d3').textContent = S.d3;
   document.getElementById('duty-top-val').textContent = S.d3;
-  sliderUi('d3', null, S.d3, '%');
-  sendCmd('d3', 'D3:'+S.d3+'\n', 'heavy');
+  if (!sliderActive) buildDigits(S.d3, '%');
+  throttleSend('d3', 'D3:'+S.d3+'\n', 40);
   updateSum(); schedScope();
 }
 function onPhSlider(v) {
   S.ph = parseInt(v);
   document.getElementById('sv-ph').textContent = S.ph;
-  sendCmd('ph', 'P3:'+S.ph+'\n', 'fast');
+  throttleSend('ph', 'P3:'+S.ph+'\n', 40);
   updateSum(); schedScope();
 }
 function onN3Slider(v) {
   S.n3 = parseInt(v);
   document.getElementById('sv-n3').textContent = S.n3;
-  sendCmd('n3', 'N3:'+S.n3+'\n', 'heavy');
+  throttleSend('n3', 'N3:'+S.n3+'\n', 40);
   updateSum(); schedScope();
 }
 
@@ -603,14 +587,7 @@ document.addEventListener('touchstart', e => {
 }, {passive:true});
 document.addEventListener('touchend', e => {
   if (e.target && e.target.type === 'range') {
-    const id = e.target.id;
-    const flushMap = {
-      'sl-freq':'freq', 'sl-duty':'duty', 'sl-f3':'f3',
-      'sl-d3':'d3', 'sl-ph':'ph', 'sl-n3':'n3'
-    };
-    const key = flushMap[id];
-    if (key) flushCmd(key);
-    setTimeout(() => { sliderActive = false; }, 300);
+    setTimeout(() => { sliderActive = false; }, 1500);
   }
 }, {passive:true});
 
@@ -1092,12 +1069,14 @@ window.onUsbEvent = function(event) {
     document.getElementById('conn-sub').textContent = 'ON';
     const mode = (typeof AndroidUSB !== 'undefined') ? AndroidUSB.getMode() : 'usb';
     document.getElementById('conn-icon').textContent = mode === 'wifi' ? 'WiFi' : 'USB';
-    setTimeout(() => { if (connected && !sliderActive) sendRaw('GET\n'); }, 500);
-    setTimeout(() => { if (connected && !sliderActive) sendRaw('GET\n'); }, 1500);
-    if (window._si) clearInterval(window._si);
-    window._si = setInterval(() => {
-      if (connected && !sliderActive) sendRaw('GET\n');
-    }, isWifi() ? 3000 : 2000);
+    // WiFi: статус приходит push-ом от прошивки (~500мс), GET не шлём — иначе
+    // команды и опрос конфликтуют в одном TCP (на ноутбуке это разделено прокси).
+    if (mode !== 'wifi') {
+      setTimeout(() => sendRaw('GET\n'), 500);
+      setTimeout(() => sendRaw('GET\n'), 1500);
+      if (window._si) clearInterval(window._si);
+      window._si = setInterval(() => { if (connected) sendRaw('GET\n'); }, 2000);
+    }
   } else if (event === 'disconnected') {
     connected = false;
     if (window._si) clearInterval(window._si);
@@ -1185,7 +1164,12 @@ function showConnMenu() {
 }
 
 function sendRaw(s) {
-  if (typeof AndroidUSB !== 'undefined') AndroidUSB.send(s);
+  if (typeof AndroidUSB === 'undefined') return;
+  const cmd = s.trim();
+  if (!cmd) return;
+  // WiFi: GET только мешает — прошивка сама шлёт JSON по TCP
+  if (cmd === 'GET' && AndroidUSB.getMode() === 'wifi') return;
+  AndroidUSB.send(s);
 }
 
 // ─── Init ───
