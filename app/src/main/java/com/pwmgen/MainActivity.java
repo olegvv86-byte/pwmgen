@@ -33,6 +33,7 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 
 /**
@@ -78,7 +79,7 @@ public class MainActivity extends Activity {
 
     private volatile int writeFailCount = 0;
     private final Object txSignal = new Object();
-    private volatile String txPending = null;
+    private final HashMap<String, String> txMap = new HashMap<>();
     private volatile boolean txAlive = false;
 
     private volatile String pendingStatusJson = null;
@@ -292,16 +293,17 @@ public class MainActivity extends Activity {
     }
 
     /**
-     * Команда уходит через выделенный TX-поток без задержки (notify сразу будит).
-     * HTTP-поток НЕ блокируется на write — fire-and-forget.
-     * Если TX-поток ещё занят предыдущей записью, новая команда перезаписывает
-     * ожидающую (коалесцирование по факту, не по таймеру).
+     * Per-key coalescing без задержки: каждый ключ хранит последнее значение.
+     * TX-поток просыпается мгновенно (notify) и шлёт все накопленные ключи.
+     * HTTP-поток НЕ блокируется — fire-and-forget.
      */
     private void queueCmd(String key, String value) {
         if (key == null || key.isEmpty()) return;
         if (!isTransportUp()) return;
-        txPending = key + ":" + value + "\n";
-        synchronized (txSignal) { txSignal.notify(); }
+        synchronized (txSignal) {
+            txMap.put(key, key + ":" + value + "\n");
+            txSignal.notify();
+        }
     }
 
     private void ensureTxThread() {
@@ -309,14 +311,17 @@ public class MainActivity extends Activity {
         txAlive = true;
         new Thread(() -> {
             while (txAlive) {
-                String cmd = txPending;
-                if (cmd != null) {
-                    txPending = null;
-                    writeLine(cmd);
-                } else {
-                    synchronized (txSignal) {
+                ArrayList<String> batch;
+                synchronized (txSignal) {
+                    if (txMap.isEmpty()) {
                         try { txSignal.wait(500); } catch (InterruptedException e) { break; }
+                        if (txMap.isEmpty()) continue;
                     }
+                    batch = new ArrayList<>(txMap.values());
+                    txMap.clear();
+                }
+                for (String cmd : batch) {
+                    writeLine(cmd);
                 }
             }
         }, "pwmgen-tx").start();
@@ -342,7 +347,7 @@ public class MainActivity extends Activity {
         if (!linkUp) return;
         linkUp = false;
         txAlive = false;
-        txPending = null;
+        synchronized (txSignal) { txMap.clear(); txSignal.notify(); }
         pendingStatusJson = null;
         clearRx();
         mainHandler.post(() -> notifyJs("disconnected"));
@@ -438,7 +443,6 @@ public class MainActivity extends Activity {
             Socket sock = new Socket();
             sock.connect(new InetSocketAddress(host, WIFI_PORT), 8000);
             sock.setTcpNoDelay(true);
-            sock.setSendBufferSize(512);
             wifiSocket = sock;
             wifiOut = sock.getOutputStream();
             wifiReading = true;
