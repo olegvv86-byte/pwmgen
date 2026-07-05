@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>PWM GEN</title>
-<!-- HTML_VER: w12 -->
+<!-- HTML_VER: p1 -->
 <style>
 /* без @import — на Wi‑Fi Pico интернета нет, fonts.googleapis блокирует загрузку */
 
@@ -503,7 +503,12 @@ function digitChg(dir) {
 }
 
 // ─── Отрисовка (лёгкая, не блокирует команды) ───
-const SCOPE_DPR = (typeof AndroidUSB !== 'undefined')
+function useProxy() {
+  const h = location.hostname;
+  return h === '127.0.0.1' || h === 'localhost';
+}
+
+const SCOPE_DPR = (useProxy() || typeof AndroidUSB !== 'undefined')
   ? 1
   : Math.min(window.devicePixelRatio || 1, 1.5);
 let _cW = 0, _cH = 0, _scopeRaf = 0;
@@ -511,17 +516,32 @@ let uiGestureActive = false;
 
 function schedScope() {
   if (!_scopeRaf) {
-    _scopeRaf = requestAnimationFrame(() => { _scopeRaf = 0; drawScope(); });
+    _scopeRaf = requestAnimationFrame(() => {
+      _scopeRaf = 0;
+      if (isPhone() && (sliderActive || uiGestureActive)) {
+        const now = performance.now();
+        if (now - _scopeLastMs < 33) return;
+        _scopeLastMs = now;
+      }
+      drawScope();
+    });
   }
 }
 
-// ─── Телефон: связь с платой ───
-const HTML_VER = 'w12';
+function markHeavyUi(ms) {
+  _heavyUiUntil = Date.now() + (ms || 3500);
+}
+
+// ─── Телефон: связь с платой (p1 = localhost прокси как POBEDA) ───
+const HTML_VER = 'p1';
 let _picoReady = false;
+let _heavyUiUntil = 0;
+let _scopeLastMs = 0;
 let _connMode = 'wifi';
+let _pollTimer = null;
 
 function isPhone() {
-  return typeof AndroidUSB !== 'undefined';
+  return useProxy() || typeof AndroidUSB !== 'undefined';
 }
 
 function readConnMode() {
@@ -622,6 +642,7 @@ function onPhSlider(v) {
 function onN3Slider(v) {
   S.n3 = parseInt(v);
   document.getElementById('sv-n3').textContent = S.n3;
+  markHeavyUi(3000);
   throttleSend('n3', 'N3:'+S.n3+'\n');
   updateSum(); schedScope();
 }
@@ -746,12 +767,13 @@ function onCh3pTap() {
   if (now - ch3pLastTap < 500) {
     // Двойное нажатие — X2
     x2Active = !x2Active;
+    markHeavyUi(4000);
     sendRaw('X2:'+(x2Active?1:0)+'\n');
     const btn = document.getElementById('btn-ch3');
     btn.style.borderColor = x2Active ? 'var(--yellow)' : '';
     btn.style.boxShadow = x2Active ? '0 0 10px var(--yellow)' : '';
     document.getElementById('ch3-sub').textContent = x2Active ? '×2' : (ch3SubMode===1 ? '≈' : '3');
-    drawScope();
+    schedScope();
   } else {
     // Одиночное — выбрать фазу
     selectMode('ch3p');
@@ -764,6 +786,7 @@ function onCh12Tap() {
   if (now - ch12LastTap < 500) {
     // Двойное нажатие — привязка/отвязка CH3
     ch3Linked = !ch3Linked;
+    markHeavyUi(3500);
     sendRaw('LK:'+(ch3Linked?1:0)+'\n');
     const btn = document.getElementById('btn-ch12');
     btn.style.borderColor = !ch3Linked ? 'var(--orange)' : '';
@@ -961,15 +984,10 @@ function drawScope() {
     ctx.stroke(); ctx.shadowBlur = 0;
   }
 
-  // ─── Draw burst (CH3) ───
-  // spacingPx — расстояние между началами пачек в пикселях.
-  //   В привязанном режиме = период CH1 (cw)
-  //   В свободном  режиме  = период FC
+  // ─── Draw burst (CH3) — как index_wifi.html, каждый импульс отдельно ───
   function drawBurst(yTop, duty3, color, count, phase, cycles, spacingPx) {
     const cw = W / cycles;
     if (spacingPx === undefined) spacingPx = cw;
-    // Фаза задана в промилле от периода CH1 (в свободном режиме фазы по CH1 нет,
-    // но визуально удобно оставить смещение — мешать не должно)
     const phOff = phase / 1000 * cw;
 
     ctx.strokeStyle = color; ctx.lineWidth = 2 * dpr;
@@ -979,14 +997,11 @@ function drawScope() {
     const freqRatio = S.f3 / S.freq;
     const impW = Math.max(2, cw / freqRatio);
     const hiW3 = impW * duty3 / 100;
-
-    // Начало первой пачки левее экрана
     const firstBurst = (phOff % spacingPx) - spacingPx;
 
     for (let i = 0; i * spacingPx + firstBurst < W + spacingPx * 2; i++) {
       const bStart = firstBurst + i * spacingPx;
-      const step = (isPhone() && count > 24) ? Math.ceil(count / 24) : 1;
-      for (let j = 0; j < count; j += step) {
+      for (let j = 0; j < count; j++) {
         const ix = bStart + j * impW;
         if (ix + hiW3 > 0 && ix < W) {
           ctx.moveTo(Math.max(0, ix), yTop + lo);
@@ -996,7 +1011,6 @@ function drawScope() {
         }
       }
     }
-    // Базовая линия
     ctx.moveTo(0, yTop + lo); ctx.lineTo(W, yTop + lo);
     ctx.stroke(); ctx.shadowBlur = 0;
   }
@@ -1031,7 +1045,6 @@ function drawScope() {
     ctx.shadowColor = '#00aaff'; ctx.shadowBlur = 5 * dpr;
     ctx.beginPath();
 
-    // Рисуем пачки — каждый период CH1 содержит N3 импульсов CH3
     const ch1CycleW = W / Math.max(0.5, windowTime3 * S.freq);
     const offsetPx = viewStart * W;
 
@@ -1144,6 +1157,7 @@ function applyStatusToggles(d) {
 
 function applyStatusSliders(d) {
   if (d.f1 === undefined) return;
+  if (Date.now() < _heavyUiUntil) return;
   S.freq = d.f1; S.duty = d.d1; S.f3 = d.f3; S.d3 = d.d3; S.n3 = d.n3; S.ph = d.p3;
   if (d.fc !== undefined) S.fc = d.fc;
   const f3val = ch3SubMode === 1 ? S.fc : S.f3;
@@ -1166,6 +1180,9 @@ function applyStatusSliders(d) {
   buildDigits(vals[currentMode] || 0, units[currentMode] || '');
   updateSum();
   schedScope();
+  selectMode(currentMode);
+  _picoReady = true;
+  document.getElementById('stxt').textContent = 'ONLINE';
 }
 
 // ─── USB / WiFi ───
@@ -1173,14 +1190,18 @@ function applyStatusSliders(d) {
 window.onUsbEvent = function(event) {
   if (event === 'connected') {
     connected = true;
+    _picoReady = useProxy();
     _connMode = readConnMode();
     document.getElementById('sdot').classList.add('on');
-    document.getElementById('stxt').textContent = 'ONLINE';
+    document.getElementById('stxt').textContent = useProxy() ? 'ONLINE' : (isWifi() ? 'SYNC…' : 'ONLINE');
     document.getElementById('conn-icon').textContent = isWifi() ? 'WiFi' : 'USB';
     document.getElementById('conn-sub').textContent = isWifi() ? HTML_VER : 'USB';
     if (window._si) clearInterval(window._si);
     window._si = null;
-    if (isUsbPhone()) {
+    if (useProxy()) {
+      if (!_pollTimer) _pollTimer = setInterval(pollStatus, 600);
+      pollStatus();
+    } else if (isUsbPhone()) {
       setTimeout(() => sendRaw('GET\n'), 500);
       window._si = setInterval(() => { if (connected) sendRaw('GET\n'); }, 2000);
     }
@@ -1191,7 +1212,9 @@ window.onUsbEvent = function(event) {
     document.getElementById('sdot').classList.remove('on');
     document.getElementById('stxt').textContent = 'OFFLINE';
     document.getElementById('conn-sub').textContent = 'OFF';
+    if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
   } else if (event.startsWith('data:')) {
+    if (useProxy()) return;
     if (sliderActive || uiGestureActive) return;
     try {
       const d = JSON.parse(event.substring(5).trim());
@@ -1200,6 +1223,19 @@ window.onUsbEvent = function(event) {
     } catch(e) {}
   }
 };
+
+async function pollStatus() {
+  if (!useProxy()) return;
+  try {
+    const r = await fetch('/status');
+    const d = await r.json();
+    if (d.f1 === undefined) return;
+    if (!connected) window.onUsbEvent('connected');
+    if (sliderActive || uiGestureActive) return;
+    applyStatusSliders(d);
+    applyStatusToggles(d);
+  } catch (e) {}
+}
 
 function connectUSB() {
   if (typeof AndroidUSB !== 'undefined') {
@@ -1220,10 +1256,19 @@ function showConnMenu() {
 }
 
 function sendRaw(s) {
-  if (!isPhone()) return;
   const cmd = s.trim();
   if (!cmd) return;
+  if (useProxy()) {
+    if (cmd === 'GET') return;
+    const parts = cmd.split(':');
+    if (parts.length === 2) {
+      fetch('/cmd/' + parts[0] + '/' + parts[1]).catch(() => {});
+    }
+    return;
+  }
+  if (!isPhone()) return;
   if (cmd === 'GET' && isWifi()) return;
+  if (isWifi() && !_picoReady) return;
   try { AndroidUSB.send(s); } catch (e) {}
 }
 
@@ -1233,6 +1278,10 @@ window.addEventListener('load', () => {
     _connMode = readConnMode();
     const sub = document.getElementById('conn-sub');
     if (sub && !connected) sub.textContent = HTML_VER;
+  }
+  if (useProxy() && !_pollTimer) {
+    _pollTimer = setInterval(pollStatus, 600);
+    pollStatus();
   }
   selectMode('ch12');
   updateSum();

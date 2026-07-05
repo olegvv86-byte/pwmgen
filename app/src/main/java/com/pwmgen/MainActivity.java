@@ -7,6 +7,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.SharedPreferences;
 import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbDeviceConnection;
 import android.hardware.usb.UsbManager;
@@ -31,70 +32,46 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.TimeUnit;
 
 /**
- * Wi‑Fi: встроенный прокси как на ноутбуке (C# + index_wifi.html).
- * Команды — сразу в TCP. JSON от Pico — только в буфер Java.
- * В WebView — максимум раз в 600 ms и только когда 1.5 s нет команд.
+ * p1: локальный HTTP-прокси как POBEDA (WebView → localhost → /cmd, /status).
+ * Wi‑Fi TCP и USB serial — один буфер RX, команды сразу на плату.
  */
 public class MainActivity extends Activity {
 
     private static final String ACTION_USB_PERMISSION = "com.pwmgen.USB_PERMISSION";
+    private static final String PREFS = "pwmgen";
+    private static final String KEY_IP = "pico_ip";
+    private static final String KEY_MODE = "conn_mode";
     private static final int BAUD_RATE = 115200;
     private static final int WIFI_PORT = 8888;
-    /** Как pollStatus() на ПК — 600 ms. */
-    private static final int STATUS_POLL_MS = 600;
-    /** Как sliderActive 1500 ms на ПК — пока крутят ползунок, JSON не в UI. */
-    private static final int CMD_QUIET_MS = 1500;
+    private static final String DEFAULT_IP = "192.168.4.1";
 
     private WebView webView;
     private UsbManager usbManager;
     private UsbSerialPort serialPort;
     private Handler mainHandler;
-    private volatile boolean reading = false;
-    private StringBuilder readBuf = new StringBuilder();
+    private byte[] indexHtmlBytes;
+
+    private volatile boolean usbReading = false;
+    private final StringBuilder usbReadBuf = new StringBuilder();
 
     private Socket wifiSocket;
     private OutputStream wifiOut;
     private volatile boolean wifiReading = false;
-    private String wifiHost = "192.168.4.1";
-    private String connMode = "usb";
+    private String wifiHost = DEFAULT_IP;
+    private String connMode = "wifi";
 
-    private volatile long lastWifiCmdMs = 0;
-    private volatile String latestStatusJson = null;
-    private volatile boolean needInitialStatus = false;
-    private volatile boolean statusPollRunning = false;
+    private LocalProxyServer proxyServer;
+    private int httpPort = 18088;
 
-    private final Object wifiCmdLock = new Object();
-    private final HashMap<String, String> wifiCmdLatest = new HashMap<>();
-    private final LinkedBlockingQueue<Object> wifiSendSignal = new LinkedBlockingQueue<>();
-    private volatile boolean wifiSendRunning = false;
-
-    private final Runnable statusPollRunnable = new Runnable() {
-        @Override
-        public void run() {
-            if (!statusPollRunning || !wifiReading) return;
-            mainHandler.postDelayed(this, STATUS_POLL_MS);
-
-            String json = latestStatusJson;
-            if (json == null) return;
-
-            long now = System.currentTimeMillis();
-            if (needInitialStatus) {
-                needInitialStatus = false;
-                deliverStatusToJs(json);
-                return;
-            }
-            if (now - lastWifiCmdMs < CMD_QUIET_MS) return;
-
-            deliverStatusToJs(json);
-        }
-    };
+    private final Object rxLock = new Object();
+    private final ArrayList<String> rxLines = new ArrayList<>();
+    private final Object sendLock = new Object();
+    private volatile boolean linkUp = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -103,8 +80,84 @@ public class MainActivity extends Activity {
         setContentView(R.layout.activity_main);
         mainHandler = new Handler(Looper.getMainLooper());
         usbManager = (UsbManager) getSystemService(Context.USB_SERVICE);
+
+        loadPrefs();
+        indexHtmlBytes = loadAssetBytes("index.html");
+        startProxy();
         setupWebView();
         registerUsbReceiver();
+
+        if ("wifi".equals(connMode)) {
+            new Thread(() -> connectWifi(wifiHost)).start();
+        } else {
+            mainHandler.postDelayed(() -> {
+                String r = connectUsb();
+                if ("NO_DEVICE".equals(r)) {
+                    new Thread(() -> connectWifi(wifiHost)).start();
+                }
+            }, 300);
+        }
+    }
+
+    private void loadPrefs() {
+        SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
+        wifiHost = p.getString(KEY_IP, DEFAULT_IP);
+        connMode = p.getString(KEY_MODE, "wifi");
+        if (!"usb".equals(connMode)) connMode = "wifi";
+    }
+
+    private void savePrefs() {
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+            .putString(KEY_IP, wifiHost)
+            .putString(KEY_MODE, connMode)
+            .apply();
+    }
+
+    private byte[] loadAssetBytes(String name) {
+        try (InputStream in = getAssets().open(name)) {
+            byte[] buf = new byte[65536];
+            int n = 0, r;
+            while ((r = in.read(buf, n, buf.length - n)) > 0) {
+                n += r;
+                if (n >= buf.length) {
+                    byte[] bigger = new byte[buf.length * 2];
+                    System.arraycopy(buf, 0, bigger, 0, n);
+                    buf = bigger;
+                }
+            }
+            byte[] out = new byte[n];
+            System.arraycopy(buf, 0, out, 0, n);
+            return out;
+        } catch (IOException e) {
+            return ("<html><body>PWMGen: index.html not found</body></html>")
+                .getBytes(StandardCharsets.UTF_8);
+        }
+    }
+
+    private void startProxy() {
+        proxyServer = new LocalProxyServer(new LocalProxyServer.Callback() {
+            @Override
+            public byte[] getIndexHtml() {
+                return indexHtmlBytes;
+            }
+
+            @Override
+            public void onCmd(String key, String value) {
+                picoSend(key, value);
+            }
+
+            @Override
+            public String getStatusJson() {
+                return lastStatusJson();
+            }
+
+            @Override
+            public boolean isLinkUp() {
+                return isTransportUp();
+            }
+        });
+        httpPort = proxyServer.bindPort();
+        proxyServer.start();
     }
 
     private void setupWebView() {
@@ -113,11 +166,12 @@ public class MainActivity extends Activity {
         WebSettings s = webView.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
-        s.setAllowFileAccess(true);
+        s.setAllowFileAccess(false);
         s.setCacheMode(WebSettings.LOAD_NO_CACHE);
         webView.addJavascriptInterface(new UsbBridge(), "AndroidUSB");
         webView.setWebViewClient(new WebViewClient());
-        webView.loadUrl("file:///android_asset/index.html");
+        int port = httpPort > 0 ? httpPort : 18088;
+        webView.loadUrl("http://127.0.0.1:" + port + "/");
     }
 
     class UsbBridge {
@@ -136,45 +190,25 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
-        public void send(String data) {
-            if ("wifi".equals(connMode)) {
-                sendWifi(data);
-            } else {
-                sendUsb(data);
-            }
-        }
-
-        @JavascriptInterface
         public String getMode() {
             return connMode;
         }
     }
 
-    private void deliverStatusToJs(String json) {
-        notifyJs("data:" + json);
-    }
-
-    private void startStatusPoll() {
-        if (statusPollRunning) return;
-        statusPollRunning = true;
-        mainHandler.post(statusPollRunnable);
-    }
-
-    private void stopStatusPoll() {
-        statusPollRunning = false;
-        mainHandler.removeCallbacks(statusPollRunnable);
-    }
-
     private void showConnMenu() {
-        String[] items = {"USB кабель", "WiFi (PWMGen)"};
+        String[] items = {"USB кабель (OTG)", "WiFi (PWMGen AP)"};
         new AlertDialog.Builder(this)
             .setTitle("Подключение")
             .setItems(items, (d, w) -> {
                 if (w == 0) {
                     connMode = "usb";
+                    savePrefs();
                     disconnectWifi();
                     String r = connectUsb();
-                    notifyJs(r.equals("NO_DEVICE") ? "disconnected" : "connected");
+                    if ("NO_DEVICE".equals(r)) {
+                        Toast.makeText(this, "USB не найден", Toast.LENGTH_SHORT).show();
+                        notifyJs("disconnected");
+                    }
                 } else {
                     showWifiDialog();
                 }
@@ -185,20 +219,72 @@ public class MainActivity extends Activity {
         EditText input = new EditText(this);
         input.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
         input.setText(wifiHost);
-        input.setHint("192.168.4.1");
+        input.setHint(DEFAULT_IP);
         new AlertDialog.Builder(this)
-            .setTitle("IP адрес Pico W")
+            .setTitle("IP адрес Pico")
             .setView(input)
             .setPositiveButton("Подключить", (d, w) -> {
                 String ip = input.getText().toString().trim();
                 if (!ip.isEmpty()) wifiHost = ip;
                 connMode = "wifi";
+                savePrefs();
                 new Thread(() -> {
                     disconnectUsb();
                     connectWifi(wifiHost);
                 }).start();
             })
             .setNegativeButton("Отмена", null).show();
+    }
+
+    private boolean isTransportUp() {
+        if ("wifi".equals(connMode)) return wifiReading && wifiSocket != null;
+        return usbReading && serialPort != null;
+    }
+
+    private void clearRx() {
+        synchronized (rxLock) {
+            rxLines.clear();
+        }
+    }
+
+    private String lastStatusJson() {
+        synchronized (rxLock) {
+            for (int i = rxLines.size() - 1; i >= 0; i--) {
+                String line = rxLines.get(i);
+                if (line.startsWith("{")) return line;
+            }
+        }
+        return "{}";
+    }
+
+    private void appendRxLine(String line) {
+        synchronized (rxLock) {
+            rxLines.add(line);
+            if (rxLines.size() > 500) rxLines.remove(0);
+        }
+    }
+
+    private void picoSend(String key, String value) {
+        if (key == null || key.isEmpty()) return;
+        String line = key + ":" + value + "\n";
+        if ("wifi".equals(connMode)) {
+            sendWifiLine(line);
+        } else {
+            sendUsb(line);
+        }
+    }
+
+    private void onLinkUp() {
+        if (linkUp) return;
+        linkUp = true;
+        mainHandler.post(() -> notifyJs("connected"));
+    }
+
+    private void onLinkDown() {
+        if (!linkUp) return;
+        linkUp = false;
+        clearRx();
+        mainHandler.post(() -> notifyJs("disconnected"));
     }
 
     private String connectUsb() {
@@ -215,11 +301,16 @@ public class MainActivity extends Activity {
         UsbDeviceConnection conn = usbManager.openDevice(device);
         if (conn == null) return "NO_DEVICE";
         try {
+            disconnectUsbQuiet();
             serialPort = driver.getPorts().get(0);
             serialPort.open(conn);
             serialPort.setParameters(BAUD_RATE, 8, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE);
+            connMode = "usb";
+            savePrefs();
+            clearRx();
             startUsbRead();
-            notifyJs("connected");
+            onLinkUp();
+            mainHandler.post(() -> Toast.makeText(this, "USB подключён", Toast.LENGTH_SHORT).show());
             return "OK";
         } catch (IOException e) {
             return "ERROR";
@@ -228,116 +319,95 @@ public class MainActivity extends Activity {
 
     private void sendUsb(String data) {
         if (serialPort == null) return;
-        try {
-            serialPort.write(data.getBytes(), 200);
-        } catch (IOException ignored) {}
+        synchronized (sendLock) {
+            try {
+                serialPort.write(data.getBytes(StandardCharsets.UTF_8), 500);
+            } catch (IOException e) {
+                usbReading = false;
+                onLinkDown();
+            }
+        }
     }
 
-    private void disconnectUsb() {
-        reading = false;
+    private void disconnectUsbQuiet() {
+        usbReading = false;
         if (serialPort != null) {
             try {
                 serialPort.close();
             } catch (IOException ignored) {}
             serialPort = null;
         }
+        usbReadBuf.setLength(0);
+    }
+
+    private void disconnectUsb() {
+        disconnectUsbQuiet();
+        if ("usb".equals(connMode)) onLinkDown();
     }
 
     private void startUsbRead() {
-        reading = true;
+        usbReading = true;
         new Thread(() -> {
-            byte[] buf = new byte[256];
-            while (reading && serialPort != null) {
+            byte[] buf = new byte[512];
+            while (usbReading && serialPort != null) {
                 try {
-                    int n = serialPort.read(buf, 200);
-                    if (n > 0) processIncoming(new String(buf, 0, n), readBuf, false);
+                    int n = serialPort.read(buf, 300);
+                    if (n > 0) {
+                        processIncoming(new String(buf, 0, n, StandardCharsets.UTF_8), usbReadBuf);
+                    }
                 } catch (IOException e) {
-                    reading = false;
+                    break;
                 }
             }
-        }).start();
+            if (usbReading) {
+                usbReading = false;
+                onLinkDown();
+            }
+        }, "pwmgen-usb-rx").start();
     }
 
     private void connectWifi(String host) {
         try {
-            disconnectWifi();
+            disconnectWifiQuiet();
             Socket sock = new Socket();
-            sock.connect(new InetSocketAddress(host, WIFI_PORT), 5000);
+            sock.connect(new InetSocketAddress(host, WIFI_PORT), 8000);
             sock.setTcpNoDelay(true);
             sock.setSoTimeout(0);
             wifiSocket = sock;
             wifiOut = sock.getOutputStream();
             wifiReading = true;
-            lastWifiCmdMs = 0;
-            latestStatusJson = null;
-            needInitialStatus = true;
-            startWifiSendThread();
+            wifiHost = host;
+            connMode = "wifi";
+            savePrefs();
+            clearRx();
             startWifiRead();
-            startStatusPoll();
-            mainHandler.post(() -> {
-                Toast.makeText(this, "WiFi подключён!", Toast.LENGTH_SHORT).show();
-                notifyJs("connected");
-            });
+            onLinkUp();
+            mainHandler.post(() -> Toast.makeText(this, "WiFi: " + host, Toast.LENGTH_SHORT).show());
         } catch (Exception e) {
             mainHandler.post(() -> {
-                Toast.makeText(this, "Ошибка: " + e.getMessage(), Toast.LENGTH_LONG).show();
-                notifyJs("disconnected");
+                Toast.makeText(this, "WiFi: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                onLinkDown();
             });
         }
     }
 
-    private void startWifiSendThread() {
-        if (wifiSendRunning) return;
-        wifiSendRunning = true;
-        new Thread(() -> {
-            while (wifiSendRunning) {
-                try {
-                    wifiSendSignal.poll(15, TimeUnit.MILLISECONDS);
-                    ArrayList<String> batch;
-                    synchronized (wifiCmdLock) {
-                        if (wifiCmdLatest.isEmpty()) continue;
-                        batch = new ArrayList<>(wifiCmdLatest.values());
-                        wifiCmdLatest.clear();
-                    }
-                    OutputStream out = wifiOut;
-                    if (out == null) continue;
-                    for (String cmd : batch) {
-                        out.write(cmd.getBytes());
-                    }
-                    out.flush();
-                } catch (InterruptedException e) {
-                    break;
-                } catch (Exception e) {
-                    mainHandler.post(() -> notifyJs("disconnected"));
-                    disconnectWifi();
-                    break;
-                }
+    private void sendWifiLine(String line) {
+        OutputStream out = wifiOut;
+        if (out == null) return;
+        synchronized (sendLock) {
+            try {
+                out.write(line.getBytes(StandardCharsets.UTF_8));
+                out.flush();
+            } catch (IOException e) {
+                wifiReading = false;
+                onLinkDown();
+                disconnectWifiQuiet();
             }
-        }).start();
-    }
-
-    private void sendWifi(String data) {
-        if (!wifiSendRunning || wifiOut == null || data == null) return;
-        lastWifiCmdMs = System.currentTimeMillis();
-        String line = data.endsWith("\n") ? data : data + "\n";
-        int c = line.indexOf(':');
-        String key = c > 0 ? line.substring(0, c) : line;
-        synchronized (wifiCmdLock) {
-            wifiCmdLatest.put(key, line);
         }
-        wifiSendSignal.offer(Boolean.TRUE);
     }
 
-    private void disconnectWifi() {
+    private void disconnectWifiQuiet() {
         wifiReading = false;
-        wifiSendRunning = false;
-        stopStatusPoll();
-        wifiSendSignal.clear();
-        synchronized (wifiCmdLock) {
-            wifiCmdLatest.clear();
-        }
-        latestStatusJson = null;
-        needInitialStatus = false;
         try {
             if (wifiSocket != null) wifiSocket.close();
         } catch (Exception ignored) {}
@@ -345,45 +415,42 @@ public class MainActivity extends Activity {
         wifiOut = null;
     }
 
+    private void disconnectWifi() {
+        disconnectWifiQuiet();
+        if ("wifi".equals(connMode)) onLinkDown();
+    }
+
     private void startWifiRead() {
-        StringBuilder wifiBuf = new StringBuilder();
+        final StringBuilder wifiBuf = new StringBuilder();
         new Thread(() -> {
             byte[] buf = new byte[512];
             while (wifiReading && wifiSocket != null) {
                 try {
                     InputStream in = wifiSocket.getInputStream();
                     int n = in.read(buf);
-                    if (n > 0) processIncoming(new String(buf, 0, n), wifiBuf, true);
-                    else break;
+                    if (n > 0) {
+                        processIncoming(new String(buf, 0, n, StandardCharsets.UTF_8), wifiBuf);
+                    } else {
+                        break;
+                    }
                 } catch (Exception e) {
                     break;
                 }
             }
             if (wifiReading) {
                 wifiReading = false;
-                mainHandler.post(() -> notifyJs("disconnected"));
+                onLinkDown();
             }
-        }).start();
+        }, "pwmgen-wifi-rx").start();
     }
 
-    private void processIncoming(String data, StringBuilder buf, boolean wifi) {
-        buf.append(data);
+    private void processIncoming(String chunk, StringBuilder buf) {
+        buf.append(chunk);
         int idx;
         while ((idx = buf.indexOf("\n")) >= 0) {
             String line = buf.substring(0, idx).trim();
             buf.delete(0, idx + 1);
-            if (line.isEmpty()) continue;
-            if (wifi && line.startsWith("{")) {
-                latestStatusJson = line;
-                if (needInitialStatus) {
-                    needInitialStatus = false;
-                    final String snap = line;
-                    mainHandler.post(() -> deliverStatusToJs(snap));
-                }
-                continue;
-            }
-            final String fl = line;
-            mainHandler.post(() -> notifyJs("data:" + fl));
+            if (!line.isEmpty()) appendRxLine(line);
         }
     }
 
@@ -403,12 +470,10 @@ public class MainActivity extends Activity {
             String action = intent.getAction();
             if (ACTION_USB_PERMISSION.equals(action)) {
                 if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
-                    String r = connectUsb();
-                    if (!"NO_DEVICE".equals(r)) notifyJs("connected");
+                    connectUsb();
                 }
             } else if (UsbManager.ACTION_USB_DEVICE_DETACHED.equals(action)) {
                 disconnectUsb();
-                notifyJs("disconnected");
             }
         }
     };
@@ -423,8 +488,9 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        disconnectUsb();
-        disconnectWifi();
+        if (proxyServer != null) proxyServer.stop();
+        disconnectUsbQuiet();
+        disconnectWifiQuiet();
         try {
             unregisterReceiver(usbReceiver);
         } catch (Exception ignored) {}
