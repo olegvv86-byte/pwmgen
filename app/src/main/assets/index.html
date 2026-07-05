@@ -511,10 +511,20 @@ function schedScope() {
   }
 }
 
-// ─── Throttle отправки команд (как index_wifi — 40 мс, по одному шагу) ───
+// ─── Throttle отправки команд ───
+function isWifi() {
+  return typeof AndroidUSB !== 'undefined' && AndroidUSB.getMode() === 'wifi';
+}
+/** Wi‑Fi: N3/F3/D3 → apply_ch3 блокирует PIO1/CYW43; реже чем F1/P3. USB: 40 мс всегда. */
+function cmdMs(key) {
+  if (!isWifi()) return 40;
+  return (key === 'n3' || key === 'f3' || key === 'd3') ? 100 : 40;
+}
+
 const throttleLast = {};
 const throttleTimer = {};
 function throttleSend(key, cmd, interval) {
+  const ms = interval || cmdMs(key);
   throttleLast[key] = cmd;
   if (!throttleTimer[key]) {
     throttleTimer[key] = setInterval(() => {
@@ -525,7 +535,18 @@ function throttleSend(key, cmd, interval) {
         clearInterval(throttleTimer[key]);
         throttleTimer[key] = null;
       }
-    }, interval || 40);
+    }, ms);
+  }
+}
+
+function flushThrottle(key) {
+  if (throttleTimer[key]) {
+    clearInterval(throttleTimer[key]);
+    throttleTimer[key] = null;
+  }
+  if (throttleLast[key]) {
+    sendRaw(throttleLast[key]);
+    throttleLast[key] = null;
   }
 }
 
@@ -533,7 +554,7 @@ function onFreqSlider(v) {
   S.freq = parseInt(v);
   document.getElementById('sv-freq').textContent = S.freq;
   if (!sliderActive) buildDigits(S.freq, 'Hz');
-  throttleSend('freq', 'F1:'+S.freq+'\n', 40);
+  throttleSend('freq', 'F1:'+S.freq+'\n');
   updateSum(); schedScope();
 }
 function onDutySlider(v) {
@@ -541,17 +562,17 @@ function onDutySlider(v) {
   document.getElementById('sv-duty').textContent = S.duty;
   document.getElementById('duty-top-val').textContent = S.duty;
   if (!sliderActive) buildDigits(S.duty, '%');
-  throttleSend('duty', 'D1:'+S.duty+'\n', 40);
+  throttleSend('duty', 'D1:'+S.duty+'\n');
   updateSum(); schedScope();
 }
 function onF3Slider(v) {
   v = parseInt(v);
   if (ch3SubMode === 1) {
     S.fc = v;
-    throttleSend('f3', 'FC:'+v+'\n', 40);
+    throttleSend('f3', 'FC:'+v+'\n');
   } else {
     S.f3 = v;
-    throttleSend('f3', 'F3:'+v+'\n', 40);
+    throttleSend('f3', 'F3:'+v+'\n');
   }
   document.getElementById('sv-f3').textContent = fmtHz(v);
   if (!sliderActive) buildDigits(v, 'Hz');
@@ -562,19 +583,19 @@ function onD3Slider(v) {
   document.getElementById('sv-d3').textContent = S.d3;
   document.getElementById('duty-top-val').textContent = S.d3;
   if (!sliderActive) buildDigits(S.d3, '%');
-  throttleSend('d3', 'D3:'+S.d3+'\n', 40);
+  throttleSend('d3', 'D3:'+S.d3+'\n');
   updateSum(); schedScope();
 }
 function onPhSlider(v) {
   S.ph = parseInt(v);
   document.getElementById('sv-ph').textContent = S.ph;
-  throttleSend('ph', 'P3:'+S.ph+'\n', 40);
+  throttleSend('ph', 'P3:'+S.ph+'\n');
   updateSum(); schedScope();
 }
 function onN3Slider(v) {
   S.n3 = parseInt(v);
   document.getElementById('sv-n3').textContent = S.n3;
-  throttleSend('n3', 'N3:'+S.n3+'\n', 40);
+  throttleSend('n3', 'N3:'+S.n3+'\n');
   updateSum(); schedScope();
 }
 
@@ -587,6 +608,7 @@ document.addEventListener('touchstart', e => {
 }, {passive:true});
 document.addEventListener('touchend', e => {
   if (e.target && e.target.type === 'range') {
+    ['freq','duty','f3','d3','ph','n3'].forEach(flushThrottle);
     setTimeout(() => { sliderActive = false; }, 1500);
   }
 }, {passive:true});
@@ -1069,8 +1091,7 @@ window.onUsbEvent = function(event) {
     document.getElementById('conn-sub').textContent = 'ON';
     const mode = (typeof AndroidUSB !== 'undefined') ? AndroidUSB.getMode() : 'usb';
     document.getElementById('conn-icon').textContent = mode === 'wifi' ? 'WiFi' : 'USB';
-    // WiFi: статус приходит push-ом от прошивки (~500мс), GET не шлём — иначе
-    // команды и опрос конфликтуют в одном TCP (на ноутбуке это разделено прокси).
+    // Wi‑Fi: GET не шлём — прошивка push-ит статус ~500ms (как /status на ноутбуке)
     if (mode !== 'wifi') {
       setTimeout(() => sendRaw('GET\n'), 500);
       setTimeout(() => sendRaw('GET\n'), 1500);
@@ -1084,6 +1105,7 @@ window.onUsbEvent = function(event) {
     document.getElementById('stxt').textContent = 'OFFLINE';
     document.getElementById('conn-sub').textContent = 'OFF';
   } else if (event.startsWith('data:')) {
+    if (sliderActive && isWifi()) return;
     try {
       const d = JSON.parse(event.substring(5).trim());
       if (d.f1 !== undefined) {
@@ -1167,8 +1189,7 @@ function sendRaw(s) {
   if (typeof AndroidUSB === 'undefined') return;
   const cmd = s.trim();
   if (!cmd) return;
-  // WiFi: GET только мешает — прошивка сама шлёт JSON по TCP
-  if (cmd === 'GET' && AndroidUSB.getMode() === 'wifi') return;
+  if (cmd === 'GET' && isWifi()) return;
   AndroidUSB.send(s);
 }
 
