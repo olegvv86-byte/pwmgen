@@ -29,7 +29,7 @@ public class LocalProxyServer implements Runnable {
     private volatile boolean running = true;
     private ServerSocket server;
     private int port = 18088;
-    private final ExecutorService workers = Executors.newFixedThreadPool(4);
+    private final ExecutorService workers = Executors.newFixedThreadPool(8);
 
     public LocalProxyServer(Callback callback) {
         this.callback = callback;

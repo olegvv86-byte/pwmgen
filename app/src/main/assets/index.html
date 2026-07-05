@@ -810,11 +810,13 @@ function onCh3Tap() {
   ch3LastTap = now;
 }
 
+let x2IgnoreUntil = 0;
 function onCh3pTap() {
   const now = Date.now();
   if (now - ch3pLastTap < 500) {
     flushAllThrottles();
     x2Active = !x2Active;
+    x2IgnoreUntil = Date.now() + 1500;
     sendRaw('X2:'+(x2Active?1:0)+'\n');
     const btn = document.getElementById('btn-ch3');
     btn.style.borderColor = x2Active ? 'var(--yellow)' : '';
@@ -822,7 +824,6 @@ function onCh3pTap() {
     document.getElementById('ch3-sub').textContent = x2Active ? '×2' : (ch3SubMode===1 ? '≈' : '3');
     schedScope();
   } else {
-    // Одиночное — выбрать фазу
     selectMode('ch3p');
   }
   ch3pLastTap = now;
@@ -1211,7 +1212,7 @@ function applyStatusToggles(d) {
     b12.style.boxShadow = !ch3Linked ? '0 0 10px var(--orange)' : '';
     document.getElementById('ch12-sub').textContent = !ch3Linked ? '⊥' : '1/2';
   }
-  if (d.x2 !== undefined && d.x2 !== (x2Active ? 1 : 0)) {
+  if (d.x2 !== undefined && d.x2 !== (x2Active ? 1 : 0) && Date.now() > x2IgnoreUntil) {
     x2Active = d.x2 === 1;
     const btn = document.getElementById('btn-ch3');
     btn.style.borderColor = x2Active ? 'var(--yellow)' : '';

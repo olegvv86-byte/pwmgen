@@ -77,6 +77,9 @@ public class MainActivity extends Activity {
     private volatile boolean linkUp = false;
 
     private volatile int writeFailCount = 0;
+    private final Object txSignal = new Object();
+    private volatile String txPending = null;
+    private volatile boolean txAlive = false;
 
     private volatile String pendingStatusJson = null;
     private volatile boolean statusPushScheduled = false;
@@ -289,13 +292,34 @@ public class MainActivity extends Activity {
     }
 
     /**
-     * Как ПОБЕSДА на ПК: команда сразу уходит в TCP/USB — lock, write, flush.
-     * Никакой очереди, никакого TX-потока, никакой задержки.
+     * Команда уходит через выделенный TX-поток без задержки (notify сразу будит).
+     * HTTP-поток НЕ блокируется на write — fire-and-forget.
+     * Если TX-поток ещё занят предыдущей записью, новая команда перезаписывает
+     * ожидающую (коалесцирование по факту, не по таймеру).
      */
     private void queueCmd(String key, String value) {
         if (key == null || key.isEmpty()) return;
         if (!isTransportUp()) return;
-        writeLine(key + ":" + value + "\n");
+        txPending = key + ":" + value + "\n";
+        synchronized (txSignal) { txSignal.notify(); }
+    }
+
+    private void ensureTxThread() {
+        if (txAlive) return;
+        txAlive = true;
+        new Thread(() -> {
+            while (txAlive) {
+                String cmd = txPending;
+                if (cmd != null) {
+                    txPending = null;
+                    writeLine(cmd);
+                } else {
+                    synchronized (txSignal) {
+                        try { txSignal.wait(500); } catch (InterruptedException e) { break; }
+                    }
+                }
+            }
+        }, "pwmgen-tx").start();
     }
 
     private void writeLine(String line) {
@@ -310,12 +334,15 @@ public class MainActivity extends Activity {
         if (linkUp) return;
         linkUp = true;
         writeFailCount = 0;
+        ensureTxThread();
         mainHandler.post(() -> notifyJs("connected"));
     }
 
     private void onLinkDown() {
         if (!linkUp) return;
         linkUp = false;
+        txAlive = false;
+        txPending = null;
         pendingStatusJson = null;
         clearRx();
         mainHandler.post(() -> notifyJs("disconnected"));
@@ -411,7 +438,8 @@ public class MainActivity extends Activity {
             Socket sock = new Socket();
             sock.connect(new InetSocketAddress(host, WIFI_PORT), 8000);
             sock.setTcpNoDelay(true);
-            sock.setSoTimeout(0);
+            sock.setSoTimeout(3000);
+            sock.setSendBufferSize(512);
             wifiSocket = sock;
             wifiOut = sock.getOutputStream();
             wifiReading = true;
