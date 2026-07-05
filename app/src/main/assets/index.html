@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>PWM GEN</title>
-<!-- HTML_VER: p3 -->
+<!-- HTML_VER: p5 -->
 <style>
 /* без @import — на Wi‑Fi Pico интернета нет, fonts.googleapis блокирует загрузку */
 
@@ -502,7 +502,7 @@ function digitChg(dir) {
   document.getElementById('dpval').textContent = newS[activeDigitIdx] || '0';
 }
 
-// ─── Отрисовка (лёгкая, не блокирует команды) ───
+// ─── Отрисовка ───
 function useProxy() {
   const h = location.hostname;
   return h === '127.0.0.1' || h === 'localhost';
@@ -518,58 +518,33 @@ function schedScope() {
   if (!_scopeRaf) {
     _scopeRaf = requestAnimationFrame(() => {
       _scopeRaf = 0;
-      if (isPhone() && isUiBusy()) {
-        const now = performance.now();
-        if (now - _scopeLastMs < 60) return;
-        _scopeLastMs = now;
-      }
       drawScope();
     });
   }
 }
 
-function markHeavyUi(ms) {
-  _heavyUiUntil = Date.now() + (ms || 3500);
-  _cmdQuietUntil = Math.max(_cmdQuietUntil, _heavyUiUntil);
-}
-
-/** Пауза опроса Pico и тяжёлой отрисовки после ЛЮБОЙ команды (мс). */
-const CMD_QUIET = {
-  X2: 5000, N3: 4000, F3: 4000, FC: 4000, D3: 3500, LK: 4000,
-  F1: 1800, D1: 1800, P3: 1800,
-  PL: 1200, PM: 1200, IV: 1000
+const SLIDER_CMD = {
+  'sl-freq': 'F1', 'sl-duty': 'D1', 'sl-f3': 'F3', 'sl-d3': 'D3', 'sl-ph': 'P3', 'sl-n3': 'N3'
 };
-let _cmdQuietUntil = 0;
-let _quietTimer = null;
 
-function markCmdQuiet(key) {
-  if (!key || key === 'GET') return;
-  const ms = CMD_QUIET[key] || 1200;
-  const until = Date.now() + ms;
-  _cmdQuietUntil = Math.max(_cmdQuietUntil, until);
-  if (ms >= 3500) _heavyUiUntil = Math.max(_heavyUiUntil, until);
-  uiGestureActive = true;
-  clearTimeout(_quietTimer);
-  _quietTimer = setTimeout(() => {
-    if (Date.now() >= _cmdQuietUntil - 100) {
-      uiGestureActive = false;
-      schedScope();
-    }
-  }, ms);
+let _sliderScopeT = null;
+function schedScopeSlider() {
+  if (_sliderScopeT) return;
+  _sliderScopeT = setTimeout(() => {
+    _sliderScopeT = null;
+    schedScope();
+  }, 16);
 }
 
 function flushAllThrottles() {
   ['freq','duty','f3','d3','ph','n3'].forEach(flushThrottle);
 }
 
-// ─── Телефон: связь с платой (p1 = localhost прокси как POBEDA) ───
-const HTML_VER = 'p3';
+// ─── Телефон: localhost прокси (p5) ───
+const HTML_VER = 'p5';
 let _picoReady = false;
-let _heavyUiUntil = 0;
-let _scopeLastMs = 0;
 let _connMode = 'wifi';
 let _pollTimer = null;
-let _pollBusy = false;
 
 function isPhone() {
   return useProxy() || typeof AndroidUSB !== 'undefined';
@@ -586,14 +561,11 @@ function readConnMode() {
   }
 }
 
-function isUiBusy() {
-  return sliderActive || uiGestureActive || phGesture
-    || Date.now() < _heavyUiUntil || Date.now() < _cmdQuietUntil;
+function pollBlocked() {
+  return sliderActive || phGesture;
 }
 
-function phoneCmdMs() {
-  return (useProxy() || isPhone()) ? 50 : 40;
-}
+const HEAVY_CMD_MS = 120;
 
 function isWifi() {
   return isPhone() && _connMode !== 'usb';
@@ -606,7 +578,7 @@ function isUsbPhone() {
 const throttleLast = {};
 const throttleTimer = {};
 function throttleSend(key, cmd, interval) {
-  const ms = interval || phoneCmdMs();
+  const ms = interval || HEAVY_CMD_MS;
   throttleLast[key] = cmd;
   if (!throttleTimer[key]) {
     sendRaw(cmd);
@@ -638,55 +610,48 @@ function onFreqSlider(v) {
   S.freq = parseInt(v);
   document.getElementById('sv-freq').textContent = S.freq;
   if (!sliderActive) buildDigits(S.freq, 'Hz');
-  throttleSend('freq', 'F1:'+S.freq+'\n');
-  if (!isUiBusy()) updateSum();
-  schedScope();
+  sendRaw('F1:'+S.freq+'\n');
+  schedScopeSlider();
 }
 function onDutySlider(v) {
   S.duty = parseInt(v);
   document.getElementById('sv-duty').textContent = S.duty;
   document.getElementById('duty-top-val').textContent = S.duty;
   if (!sliderActive) buildDigits(S.duty, '%');
-  throttleSend('duty', 'D1:'+S.duty+'\n');
-  if (!isUiBusy()) updateSum();
-  schedScope();
+  sendRaw('D1:'+S.duty+'\n');
+  schedScopeSlider();
 }
 function onF3Slider(v) {
   v = parseInt(v);
   if (ch3SubMode === 1) {
     S.fc = v;
-    throttleSend('f3', 'FC:'+v+'\n');
+    throttleSend('f3', 'FC:'+v+'\n', HEAVY_CMD_MS);
   } else {
     S.f3 = v;
-    throttleSend('f3', 'F3:'+v+'\n');
+    throttleSend('f3', 'F3:'+v+'\n', HEAVY_CMD_MS);
   }
   document.getElementById('sv-f3').textContent = fmtHz(v);
   if (!sliderActive) buildDigits(v, 'Hz');
-  if (!isUiBusy()) updateSum();
-  schedScope();
+  schedScopeSlider();
 }
 function onD3Slider(v) {
   S.d3 = parseInt(v);
   document.getElementById('sv-d3').textContent = S.d3;
   document.getElementById('duty-top-val').textContent = S.d3;
   if (!sliderActive) buildDigits(S.d3, '%');
-  throttleSend('d3', 'D3:'+S.d3+'\n');
-  if (!isUiBusy()) updateSum();
-  schedScope();
+  throttleSend('d3', 'D3:'+S.d3+'\n', HEAVY_CMD_MS);
+  schedScopeSlider();
 }
 function onPhSlider(v) {
   S.ph = parseInt(v);
   document.getElementById('sv-ph').textContent = S.ph;
-  throttleSend('ph', 'P3:'+S.ph+'\n');
-  if (!isUiBusy()) updateSum();
-  schedScope();
+  sendRaw('P3:'+S.ph+'\n');
+  schedScopeSlider();
 }
 function onN3Slider(v) {
   S.n3 = parseInt(v);
   document.getElementById('sv-n3').textContent = S.n3;
-  throttleSend('n3', 'N3:'+S.n3+'\n');
-  if (!isUiBusy()) updateSum();
-  schedScope();
+  schedScopeSlider();
 }
 
 let sliderActive = false;
@@ -701,10 +666,26 @@ document.addEventListener('touchstart', e => {
 }, {passive:true});
 document.addEventListener('touchend', e => {
   if (e.target && e.target.type === 'range') {
+    const id = e.target.id;
     ['freq','duty','f3','d3','ph','n3'].forEach(flushThrottle);
-    setTimeout(() => { sliderActive = false; uiGestureActive = false; }, 1500);
+    if (id === 'sl-n3') sendRaw('N3:'+S.n3+'\n');
+    else if (id === 'sl-f3') {
+      if (ch3SubMode === 1) sendRaw('FC:'+S.fc+'\n');
+      else sendRaw('F3:'+S.f3+'\n');
+    } else if (id === 'sl-d3') sendRaw('D3:'+S.d3+'\n');
+    setTimeout(() => {
+      sliderActive = false;
+      uiGestureActive = false;
+      updateSum();
+      schedScope();
+    }, 150);
   }
 }, {passive:true});
+['sl-freq','sl-duty','sl-f3','sl-d3','sl-ph','sl-n3'].forEach(id => {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.addEventListener('pointerdown', () => { sliderActive = true; uiGestureActive = true; });
+});
 
 function addSliderSend(id, cmdFn) {
   const el = document.getElementById(id);
@@ -729,6 +710,7 @@ let pllMode = 0;   // 0 = PHASE (двигать пачку), 1 = FREQ (меня�
 
 function toggleINV() {
   invActive = !invActive;
+  flushAllThrottles();
   sendRaw('IV:'+(invActive?1:0)+'\n');
   const btn = document.getElementById('btn-inv');
   btn.classList.toggle('active', invActive);
@@ -963,8 +945,8 @@ function initGesture() {
         S.ph = ((phStartVal + phDelta) % 1000 + 1000) % 1000;
         document.getElementById('sl-ph').value = S.ph;
         document.getElementById('sv-ph').textContent = S.ph;
-        throttleSend('ph', 'P3:'+S.ph+'\n');
-        schedScope();
+        sendRaw('P3:'+S.ph+'\n');
+        schedScopeSlider();
       }
     }
   }, {passive:true});
@@ -972,16 +954,28 @@ function initGesture() {
   wrap.addEventListener('touchend', e => {
     if (e.touches.length === 0) {
       if (phGesture) {
-        flushThrottle('ph');
+        sendRaw('P3:'+S.ph+'\n');
         phGesture = false;
-        setTimeout(() => { uiGestureActive = false; }, 1500);
+        setTimeout(() => { uiGestureActive = false; }, 150);
       }
       isPanning = false;
     }
   });
 }
 
+let _scopeDrawing = false;
+
 function drawScope() {
+  if (_scopeDrawing) return;
+  _scopeDrawing = true;
+  try {
+  drawScopeInner();
+  } finally {
+  _scopeDrawing = false;
+  }
+}
+
+function drawScopeInner() {
   const canvas = document.getElementById('scope');
   const wrap = document.getElementById('scope-wrap');
   const W = Math.round(wrap.offsetWidth * SCOPE_DPR);
@@ -992,7 +986,7 @@ function drawScope() {
   }
   const ctx = canvas.getContext('2d');
   const dpr = SCOPE_DPR;
-  const liteDraw = isPhone() && isUiBusy();
+  const useShadow = !isPhone();
 
   // BG
   ctx.fillStyle = '#020208'; ctx.fillRect(0,0,W,H);
@@ -1014,7 +1008,7 @@ function drawScope() {
     const cw = W / cycles;
     const phOff = (phaseShift || 0) * cw;
     ctx.strokeStyle = color; ctx.lineWidth = 2 * dpr;
-    if (!liteDraw) { ctx.shadowColor = color; ctx.shadowBlur = 3 * dpr; }
+    if (useShadow) { ctx.shadowColor = color; ctx.shadowBlur = 3 * dpr; }
     ctx.beginPath();
     const hiW = cw * duty / 100;
     for (let i = -1; i < cycles + 1; i++) {
@@ -1035,15 +1029,16 @@ function drawScope() {
     const phOff = phase / 1000 * cw;
 
     ctx.strokeStyle = color; ctx.lineWidth = 2 * dpr;
-    if (!liteDraw) { ctx.shadowColor = color; ctx.shadowBlur = 3 * dpr; }
+    if (useShadow) { ctx.shadowColor = color; ctx.shadowBlur = 3 * dpr; }
     ctx.beginPath();
 
     const freqRatio = S.f3 / S.freq;
     const impW = Math.max(2, cw / freqRatio);
     const hiW3 = impW * duty3 / 100;
     const firstBurst = (phOff % spacingPx) - spacingPx;
+    const maxBursts = 200;
 
-    for (let i = 0; i * spacingPx + firstBurst < W + spacingPx * 2; i++) {
+    for (let i = 0; i < maxBursts && i * spacingPx + firstBurst < W + spacingPx * 2; i++) {
       const bStart = firstBurst + i * spacingPx;
       for (let j = 0; j < count; j++) {
         const ix = bStart + j * impW;
@@ -1086,7 +1081,7 @@ function drawScope() {
     const hiW3 = impW3 * S.d3 / 100;
 
     ctx.strokeStyle = '#00aaff'; ctx.lineWidth = 2.5 * dpr;
-    if (!liteDraw) { ctx.shadowColor = '#00aaff'; ctx.shadowBlur = 5 * dpr; }
+    if (useShadow) { ctx.shadowColor = '#00aaff'; ctx.shadowBlur = 5 * dpr; }
     ctx.beginPath();
 
     const ch1CycleW = W / Math.max(0.5, windowTime3 * S.freq);
@@ -1096,7 +1091,8 @@ function drawScope() {
       ctx.strokeStyle = color;
       ctx.beginPath();
       const extraPhOff = phaseOffset * ch1CycleW;
-      for (let i = -3; i < cycles3 * (S.f3 / S.freq) + 4; i++) {
+      const zMaxI = 200;
+      for (let i = -3; i < zMaxI && i < cycles3 * (S.f3 / S.freq) + 4; i++) {
         const burstStart = i * ch1CycleW + phOff3 + extraPhOff - offsetPx;
         for (let j = 0; j < S.n3; j++) {
           const ix = burstStart + j * cw3;
@@ -1113,17 +1109,14 @@ function drawScope() {
     }
 
     ctx.lineWidth = 2.5 * dpr;
-    if (!liteDraw) {
+    if (useShadow) {
       ctx.shadowBlur = 5 * dpr;
       ctx.shadowColor = '#00aaff';
-      drawZoomBursts('#00aaff', 0);
-      if (x2Active) {
-        ctx.shadowColor = '#aa44ff';
-        drawZoomBursts('#aa44ff', 0.5);
-      }
-    } else {
-      drawZoomBursts('#00aaff', 0);
-      if (x2Active) drawZoomBursts('#aa44ff', 0.5);
+    }
+    drawZoomBursts('#00aaff', 0);
+    if (x2Active) {
+      if (useShadow) ctx.shadowColor = '#aa44ff';
+      drawZoomBursts('#aa44ff', 0.5);
     }
     ctx.shadowBlur = 0;
 
@@ -1148,7 +1141,7 @@ function drawScope() {
 
     // CH3 пачки — если X2 то вторая пачка со сдвигом 50% периода CH1
     drawBurst(rowH*2, S.d3, '#00aaff', S.n3, S.ph, cycles, burstSpacing);
-    if (x2Active && !liteDraw) {
+    if (x2Active) {
       const ph2 = (S.ph + 500) % 1000;
       drawBurst(rowH*2, S.d3, '#aa44ff', S.n3, ph2, cycles, burstSpacing);
     }
@@ -1179,7 +1172,7 @@ function drawScope() {
 
 // ─── Синхронизация с Pico ───
 function applyStatusToggles(d) {
-  if (isUiBusy()) return;
+  if (pollBlocked()) return;
   if (d.lk !== undefined) {
     ch3Linked = d.lk === 1;
     const b12 = document.getElementById('btn-ch12');
@@ -1206,7 +1199,7 @@ function applyStatusToggles(d) {
 
 function applyStatusSliders(d) {
   if (d.f1 === undefined) return;
-  if (isUiBusy()) return;
+  if (pollBlocked()) return;
   S.freq = d.f1; S.duty = d.d1; S.f3 = d.f3; S.d3 = d.d3; S.n3 = d.n3; S.ph = d.p3;
   if (d.fc !== undefined) S.fc = d.fc;
   const f3val = ch3SubMode === 1 ? S.fc : S.f3;
@@ -1247,8 +1240,7 @@ window.onUsbEvent = function(event) {
     if (window._si) clearInterval(window._si);
     window._si = null;
     if (useProxy()) {
-      if (!_pollTimer) _pollTimer = setInterval(pollStatus, 700);
-      pollStatus();
+      if (!_pollTimer) _pollTimer = setInterval(pollStatus, 2000);
     } else if (isUsbPhone()) {
       setTimeout(() => sendRaw('GET\n'), 500);
       window._si = setInterval(() => { if (connected) sendRaw('GET\n'); }, 2000);
@@ -1262,30 +1254,27 @@ window.onUsbEvent = function(event) {
     document.getElementById('conn-sub').textContent = 'OFF';
     if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
   } else if (event.startsWith('data:')) {
-    if (useProxy()) return;
-    if (sliderActive || uiGestureActive || phGesture) return;
+    if (pollBlocked()) return;
     try {
       const d = JSON.parse(event.substring(5).trim());
-      if (d.f1 !== undefined && !sliderActive) applyStatusSliders(d);
+      if (d.f1 !== undefined) applyStatusSliders(d);
       applyStatusToggles(d);
     } catch(e) {}
   }
 };
 
 async function pollStatus() {
-  if (!useProxy() || _pollBusy || isUiBusy()) return;
-  _pollBusy = true;
+  if (!useProxy() || pollBlocked()) return;
   try {
     const r = await fetch('/status');
-    if (isUiBusy()) return;
+    if (pollBlocked()) return;
     const d = await r.json();
     if (d.f1 === undefined) return;
     if (!connected) window.onUsbEvent('connected');
-    if (isUiBusy()) return;
+    if (pollBlocked()) return;
     applyStatusSliders(d);
     applyStatusToggles(d);
   } catch (e) {}
-  finally { _pollBusy = false; }
 }
 
 function connectUSB() {
@@ -1309,10 +1298,6 @@ function showConnMenu() {
 function sendRaw(s) {
   const cmd = s.trim();
   if (!cmd) return;
-  if (cmd !== 'GET') {
-    const key = cmd.split(':')[0];
-    if (isPhone()) markCmdQuiet(key);
-  }
   if (useProxy()) {
     if (cmd === 'GET') return;
     const parts = cmd.split(':');
@@ -1335,8 +1320,7 @@ window.addEventListener('load', () => {
     if (sub && !connected) sub.textContent = HTML_VER;
   }
   if (useProxy() && !_pollTimer) {
-    _pollTimer = setInterval(pollStatus, 700);
-    pollStatus();
+    _pollTimer = setInterval(pollStatus, 2000);
   }
   selectMode('ch12');
   updateSum();

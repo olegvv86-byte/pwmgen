@@ -34,14 +34,20 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
- * p1: локальный HTTP-прокси как POBEDA (WebView → localhost → /cmd, /status).
- * Wi‑Fi TCP и USB serial — один буфер RX, команды сразу на плату.
+ * p5: прокси + раздельная отправка — лёгкие команды сразу, тяжёлые (N3/F3/D3/FC) coalesce 120 ms.
+ * Статус push из RX-потока в WebView (без лишнего HTTP poll).
  */
 public class MainActivity extends Activity {
+
+    private static final Set<String> HEAVY_KEYS = new HashSet<>(
+        Arrays.asList("N3", "F3", "D3", "FC"));
 
     private static final String ACTION_USB_PERMISSION = "com.pwmgen.USB_PERMISSION";
     private static final String PREFS = "pwmgen";
@@ -267,6 +273,9 @@ public class MainActivity extends Activity {
             rxLines.add(line);
             if (rxLines.size() > 500) rxLines.remove(0);
         }
+        if (line.startsWith("{")) {
+            mainHandler.post(() -> notifyJs("data:" + line));
+        }
     }
 
     private void clearCmdQueue() {
@@ -277,19 +286,43 @@ public class MainActivity extends Activity {
 
     private void queueCmd(String key, String value) {
         if (key == null || key.isEmpty()) return;
-        synchronized (cmdLock) {
-            cmdLatest.put(key, value);
+        if (HEAVY_KEYS.contains(key)) {
+            synchronized (cmdLock) {
+                cmdLatest.put(key, value);
+            }
+            ensureHeavySendThread();
+            return;
         }
-        ensureSendThread();
+        if (isTransportUp()) {
+            writeLine(key + ":" + value + "\n");
+        } else {
+            synchronized (cmdLock) {
+                cmdLatest.put(key, value);
+            }
+        }
     }
 
-    private void ensureSendThread() {
+    private void flushPendingCmds() {
+        if (!isTransportUp()) return;
+        ArrayList<String> batch = new ArrayList<>();
+        synchronized (cmdLock) {
+            for (String k : new ArrayList<>(cmdLatest.keySet())) {
+                String v = cmdLatest.remove(k);
+                if (v != null) batch.add(k + ":" + v + "\n");
+            }
+        }
+        for (String line : batch) {
+            writeLine(line);
+        }
+    }
+
+    private void ensureHeavySendThread() {
         if (sendThreadRunning) return;
         sendThreadRunning = true;
         new Thread(() -> {
             while (sendThreadRunning) {
                 try {
-                    Thread.sleep(30);
+                    Thread.sleep(120);
                     if (!isTransportUp()) continue;
                     ArrayList<String> batch = new ArrayList<>();
                     synchronized (cmdLock) {
@@ -320,6 +353,8 @@ public class MainActivity extends Activity {
     private void onLinkUp() {
         if (linkUp) return;
         linkUp = true;
+        flushPendingCmds();
+        ensureHeavySendThread();
         mainHandler.post(() -> notifyJs("connected"));
     }
 
@@ -355,7 +390,6 @@ public class MainActivity extends Activity {
             clearRx();
             clearCmdQueue();
             startUsbRead();
-            ensureSendThread();
             onLinkUp();
             mainHandler.post(() -> Toast.makeText(this, "USB подключён", Toast.LENGTH_SHORT).show());
             return "OK";
@@ -429,7 +463,6 @@ public class MainActivity extends Activity {
             clearRx();
             clearCmdQueue();
             startWifiRead();
-            ensureSendThread();
             onLinkUp();
             mainHandler.post(() -> Toast.makeText(this, "WiFi: " + host, Toast.LENGTH_SHORT).show());
         } catch (Exception e) {
