@@ -438,7 +438,6 @@ public class MainActivity extends Activity {
             Socket sock = new Socket();
             sock.connect(new InetSocketAddress(host, WIFI_PORT), 8000);
             sock.setTcpNoDelay(true);
-            sock.setSoTimeout(3000);
             sock.setSendBufferSize(512);
             wifiSocket = sock;
             wifiOut = sock.getOutputStream();
