@@ -42,7 +42,9 @@ public class MainActivity extends Activity {
     private static final String ACTION_USB_PERMISSION = "com.pwmgen.USB_PERMISSION";
     private static final int BAUD_RATE = 115200;
     private static final int WIFI_PORT = 8888;
-    private static final int WIFI_STATUS_MIN_MS = 500;
+    /** Не слать JSON в WebView пока идут команды — главная причина фризов. */
+    private static final int WIFI_STATUS_QUIET_MS = 2000;
+    private static final int WIFI_STATUS_MIN_MS = 800;
 
     private WebView webView;
     private UsbManager usbManager;
@@ -57,7 +59,7 @@ public class MainActivity extends Activity {
     private String wifiHost = "192.168.4.1";
     private String connMode = "usb";
 
-    private volatile boolean sliderBusy = false;
+    private volatile long lastWifiCmdMs = 0;
     private long lastStatusJsMs = 0;
     private String pendingStatusJson = null;
 
@@ -69,8 +71,12 @@ public class MainActivity extends Activity {
     private final Runnable deliverStatusRunnable = new Runnable() {
         @Override
         public void run() {
-            if (sliderBusy || pendingStatusJson == null) return;
+            if (pendingStatusJson == null) return;
             long now = System.currentTimeMillis();
+            if (now - lastWifiCmdMs < WIFI_STATUS_QUIET_MS) {
+                mainHandler.postDelayed(this, WIFI_STATUS_QUIET_MS - (now - lastWifiCmdMs));
+                return;
+            }
             long wait = WIFI_STATUS_MIN_MS - (now - lastStatusJsMs);
             if (wait > 0) {
                 mainHandler.postDelayed(this, wait);
@@ -136,17 +142,13 @@ public class MainActivity extends Activity {
             return connMode;
         }
 
+        /** Совместимость со старым HTML — no-op. */
         @JavascriptInterface
-        public void setSliderBusy(boolean busy) {
-            sliderBusy = busy;
-            if (!busy) {
-                scheduleStatusDelivery();
-            }
-        }
+        public void setSliderBusy(boolean busy) {}
     }
 
     private void scheduleStatusDelivery() {
-        if (pendingStatusJson == null || sliderBusy) return;
+        if (pendingStatusJson == null) return;
         mainHandler.removeCallbacks(deliverStatusRunnable);
         mainHandler.post(deliverStatusRunnable);
     }
@@ -274,7 +276,7 @@ public class MainActivity extends Activity {
         new Thread(() -> {
             while (wifiSendRunning) {
                 try {
-                    wifiSendSignal.poll(25, TimeUnit.MILLISECONDS);
+                    wifiSendSignal.poll(15, TimeUnit.MILLISECONDS);
                     ArrayList<String> batch;
                     synchronized (wifiCmdLock) {
                         if (wifiCmdLatest.isEmpty()) continue;
@@ -300,6 +302,8 @@ public class MainActivity extends Activity {
 
     private void sendWifi(String data) {
         if (!wifiSendRunning || wifiOut == null || data == null) return;
+        lastWifiCmdMs = System.currentTimeMillis();
+        mainHandler.removeCallbacks(deliverStatusRunnable);
         String line = data.endsWith("\n") ? data : data + "\n";
         int c = line.indexOf(':');
         String key = c > 0 ? line.substring(0, c) : line;
@@ -355,9 +359,7 @@ public class MainActivity extends Activity {
             if (line.isEmpty()) continue;
             if (wifi && line.startsWith("{")) {
                 pendingStatusJson = line;
-                if (!sliderBusy) {
-                    scheduleStatusDelivery();
-                }
+                scheduleStatusDelivery();
                 continue;
             }
             final String fl = line;

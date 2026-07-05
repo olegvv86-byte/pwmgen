@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>PWM GEN</title>
-<!-- HTML_VER: w8 -->
+<!-- HTML_VER: w9 -->
 <style>
 /* без @import — на Wi‑Fi Pico интернета нет, fonts.googleapis блокирует загрузку */
 
@@ -516,21 +516,8 @@ function schedScope() {
   }
 }
 
-function schedScopeFromStatus() {
-  if (isWifi() && isPhone()) {
-    if (!_scopeDeferTimer) {
-      _scopeDeferTimer = setTimeout(() => {
-        _scopeDeferTimer = 0;
-        schedScope();
-      }, 500);
-    }
-    return;
-  }
-  schedScope();
-}
-
-// ─── Телефон: связь с платой (не зависит от getMode()==='wifi') ───
-const HTML_VER = 'w8';
+// ─── Телефон: связь с платой ───
+const HTML_VER = 'w9';
 let _connMode = 'wifi';
 
 function isPhone() {
@@ -556,27 +543,17 @@ function isUsbPhone() {
   return isPhone() && _connMode === 'usb';
 }
 
-/** Wi‑Fi: лёгкие — 50ms в полёте; F3/D3 — 200ms; N3 — только при отпускании (тяжёлая прошивка). */
-function cmdMs(key) {
-  if (isUsbPhone()) return 40;
-  if (!isWifi()) return 40;
-  if (key === 'n3') return 400;
-  if (key === 'f3' || key === 'd3') return 200;
-  return 50;
-}
-
-function setSliderBusy(on) {
-  if (isPhone() && typeof AndroidUSB.setSliderBusy === 'function') {
-    try { AndroidUSB.setSliderBusy(!!on); } catch (e) {}
-  }
-}
+/** Как на ПК: 40ms, первое значение уходит сразу. */
+const CMD_MS = 40;
 
 const throttleLast = {};
 const throttleTimer = {};
 function throttleSend(key, cmd, interval) {
-  const ms = interval || cmdMs(key);
+  const ms = interval || CMD_MS;
   throttleLast[key] = cmd;
   if (!throttleTimer[key]) {
+    sendRaw(cmd);
+    throttleLast[key] = null;
     throttleTimer[key] = setInterval(() => {
       if (throttleLast[key]) {
         sendRaw(throttleLast[key]);
@@ -600,17 +577,7 @@ function flushThrottle(key) {
   }
 }
 
-/** N3 на Pico пересобирает PIO — только при отпускании; остальное — throttle в полёте. */
-function sendCmd(key, cmd) {
-  if (isWifi() && key === 'n3') {
-    throttleLast[key] = cmd;
-    return;
-  }
-  throttleSend(key, cmd);
-}
-
 function onFreqSlider(v) {
-  S.freq = parseInt(v);
   document.getElementById('sv-freq').textContent = S.freq;
   if (!sliderActive) buildDigits(S.freq, 'Hz');
   throttleSend('freq', 'F1:'+S.freq+'\n');
@@ -628,10 +595,10 @@ function onF3Slider(v) {
   v = parseInt(v);
   if (ch3SubMode === 1) {
     S.fc = v;
-    sendCmd('f3', 'FC:'+v+'\n');
+    throttleSend('f3', 'FC:'+v+'\n');
   } else {
     S.f3 = v;
-    sendCmd('f3', 'F3:'+v+'\n');
+    throttleSend('f3', 'F3:'+v+'\n');
   }
   document.getElementById('sv-f3').textContent = fmtHz(v);
   if (!sliderActive) buildDigits(v, 'Hz');
@@ -642,7 +609,7 @@ function onD3Slider(v) {
   document.getElementById('sv-d3').textContent = S.d3;
   document.getElementById('duty-top-val').textContent = S.d3;
   if (!sliderActive) buildDigits(S.d3, '%');
-  sendCmd('d3', 'D3:'+S.d3+'\n');
+  throttleSend('d3', 'D3:'+S.d3+'\n');
   updateSum(); schedScope();
 }
 function onPhSlider(v) {
@@ -654,26 +621,21 @@ function onPhSlider(v) {
 function onN3Slider(v) {
   S.n3 = parseInt(v);
   document.getElementById('sv-n3').textContent = S.n3;
-  sendCmd('n3', 'N3:'+S.n3+'\n');
+  throttleSend('n3', 'N3:'+S.n3+'\n');
   updateSum(); schedScope();
 }
 
 let sliderActive = false;
 let sliderDebounce = null;
 
-// Глобальное отслеживание касания ползунков
+// Глобальное отслеживание касания ползунков (как index_wifi.html)
 document.addEventListener('touchstart', e => {
-  if (e.target && e.target.type === 'range') {
-    sliderActive = true;
-    setSliderBusy(true);
-  }
+  if (e.target && e.target.type === 'range') sliderActive = true;
 }, {passive:true});
 document.addEventListener('touchend', e => {
   if (e.target && e.target.type === 'range') {
     ['freq','duty','f3','d3','ph','n3'].forEach(flushThrottle);
-    sliderActive = false;
-    setSliderBusy(false);
-    schedScope();
+    setTimeout(() => { sliderActive = false; }, 1500);
   }
 }, {passive:true});
 
@@ -901,7 +863,6 @@ function initGesture() {
         if (y > h * 0.67) {
           phGesture = true;
           uiGestureActive = true;
-          setSliderBusy(true);
           phStartX = e.touches[0].clientX;
           phStartVal = S.ph;
         }
@@ -947,7 +908,6 @@ function initGesture() {
         flushThrottle('ph');
         phGesture = false;
         uiGestureActive = false;
-        setSliderBusy(false);
       }
       isPanning = false;
     }
@@ -1180,20 +1140,43 @@ window.onUsbEvent = function(event) {
     document.getElementById('stxt').textContent = 'OFFLINE';
     document.getElementById('conn-sub').textContent = 'OFF';
   } else if (event.startsWith('data:')) {
-    if (sliderActive) return;
-    const now = Date.now();
-    if (isWifi() && now - _lastDataMs < 500) return;
-    _lastDataMs = now;
+    if (sliderActive || uiGestureActive) return;
     try {
       const d = JSON.parse(event.substring(5).trim());
+
+      /** Wi‑Fi телефон: ползунки локальные, с Pico не перезаписываем (как RC-машинка). */
+      if (isWifi() && isPhone()) {
+        if (d.lk !== undefined) {
+          ch3Linked = d.lk === 1;
+          const b12 = document.getElementById('btn-ch12');
+          b12.style.borderColor = !ch3Linked ? 'var(--orange)' : '';
+          b12.style.boxShadow = !ch3Linked ? '0 0 10px var(--orange)' : '';
+          document.getElementById('ch12-sub').textContent = !ch3Linked ? '⊥' : '1/2';
+        }
+        if (d.x2 !== undefined && d.x2 !== (x2Active?1:0)) {
+          x2Active = d.x2 === 1;
+          const btn = document.getElementById('btn-ch3');
+          btn.style.borderColor = x2Active ? 'var(--yellow)' : '';
+          btn.style.boxShadow = x2Active ? '0 0 10px var(--yellow)' : '';
+          btn.querySelector('sub').textContent = x2Active ? '×2' : '3';
+        }
+        if (d.pl !== undefined) pllActive = d.pl === 1;
+        if (d.pm !== undefined) pllMode = d.pm;
+        if (d.pl !== undefined || d.pm !== undefined) updatePllLabel();
+        if (d.iv !== undefined) {
+          invActive = d.iv === 1;
+          document.getElementById('btn-inv').classList.toggle('active', invActive);
+          document.getElementById('inv-sub').textContent = invActive ? 'ON' : 'OFF';
+        }
+        return;
+      }
+
       if (d.f1 !== undefined) {
-        // Обновляем только если ползунок не активен
         if (!sliderActive) {
           S.freq=d.f1; S.duty=d.d1; S.f3=d.f3; S.d3=d.d3; S.n3=d.n3; S.ph=d.p3;
           if (d.fc !== undefined) S.fc = d.fc;
           document.getElementById('sl-freq').value = S.freq;
           document.getElementById('sl-duty').value = S.duty;
-          // sl-f3 показывает F3 или FC в зависимости от текущего ch3SubMode
           const f3val = ch3SubMode === 1 ? S.fc : S.f3;
           document.getElementById('sl-f3').value = f3val;
           document.getElementById('sl-d3').value = S.d3;
@@ -1210,7 +1193,7 @@ window.onUsbEvent = function(event) {
           const units = {ch12:'Hz', duty:'%', ch3:'Hz', d3:'%', ch3p:'%'};
           const vals = {ch12:S.freq, duty:S.duty, ch3:f3val, d3:S.d3, ch3p:S.ph};
           buildDigits(vals[currentMode]||0, units[currentMode]||'');
-          updateSum(); schedScopeFromStatus();
+          updateSum(); schedScope();
         }
         if (d.lk !== undefined) {
           ch3Linked = d.lk === 1;
