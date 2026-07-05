@@ -432,20 +432,20 @@ function setCurVal(v) {
     S.freq = v;
     document.getElementById('sl-freq').value = v;
     document.getElementById('sv-freq').textContent = v;
-    sendRaw('F1:'+v+'\n');
+    throttleSend('freq', 'F1:'+v+'\n', LIGHT_CMD_MS);
   } else if (currentMode === 'duty') {
     S.duty = v;
     document.getElementById('sl-duty').value = v;
     document.getElementById('sv-duty').textContent = v;
     document.getElementById('duty-top-val').textContent = v;
-    sendRaw('D1:'+v+'\n');
+    throttleSend('duty', 'D1:'+v+'\n', LIGHT_CMD_MS);
   } else if (currentMode === 'ch3') {
     if (ch3SubMode === 1) {
       S.fc = v;
-      sendRaw('FC:'+v+'\n');
+      throttleSend('f3', 'FC:'+v+'\n', HEAVY_CMD_MS);
     } else {
       S.f3 = v;
-      sendRaw('F3:'+v+'\n');
+      throttleSend('f3', 'F3:'+v+'\n', HEAVY_CMD_MS);
     }
     document.getElementById('sl-f3').value = v;
     document.getElementById('sv-f3').textContent = fmtHz(v);
@@ -454,12 +454,12 @@ function setCurVal(v) {
     document.getElementById('sl-d3').value = v;
     document.getElementById('sv-d3').textContent = v;
     document.getElementById('duty-top-val').textContent = v;
-    sendRaw('D3:'+v+'\n');
+    throttleSend('d3', 'D3:'+v+'\n', HEAVY_CMD_MS);
   } else if (currentMode === 'ch3p') {
     S.ph = v;
     document.getElementById('sl-ph').value = v;
     document.getElementById('sv-ph').textContent = v;
-    sendRaw('P3:'+v+'\n');
+    throttleSend('ph', 'P3:'+v+'\n', LIGHT_CMD_MS);
   }
   const units = {ch12:'Hz', duty:'%', ch3:'Hz', d3:'%', ch3p:'%'};
   buildDigits(v, units[currentMode]);
@@ -552,7 +552,7 @@ function schedScopeSlider() {
   _sliderScopeT = setTimeout(() => {
     _sliderScopeT = null;
     schedScope();
-  }, 16);
+  }, 80);
 }
 
 function flushAllThrottles() {
@@ -584,10 +584,8 @@ function pollBlocked() {
   return sliderActive || phGesture;
 }
 
-const HEAVY_CMD_MS = 120;
-// Лёгкие ползунки (freq/duty/phase) тоже троттлим, чтобы не открывать десятки
-// HTTP-соединений в секунду при перетаскивании.
-const LIGHT_CMD_MS = 60;
+const HEAVY_CMD_MS = 150;
+const LIGHT_CMD_MS = 150;
 
 function isWifi() {
   return isPhone() && _connMode !== 'usb';
@@ -967,7 +965,6 @@ function initGesture() {
         S.ph = ((phStartVal + phDelta) % 1000 + 1000) % 1000;
         document.getElementById('sl-ph').value = S.ph;
         document.getElementById('sv-ph').textContent = S.ph;
-        throttleSend('ph', 'P3:'+S.ph+'\n', LIGHT_CMD_MS);
         schedScopeSlider();
       }
     }
@@ -1034,8 +1031,10 @@ function drawScopeInner() {
     if (useShadow) { ctx.shadowColor = color; ctx.shadowBlur = 3 * dpr; }
     ctx.beginPath();
     const hiW = cw * duty / 100;
-    for (let i = -1; i < cycles + 1; i++) {
+    const maxI = Math.min(Math.ceil(cycles) + 1, 200);
+    for (let i = -1; i < maxI; i++) {
       const x0 = i * cw + phOff;
+      if (x0 > W) break;
       ctx.moveTo(x0, yTop + lo);
       ctx.lineTo(x0, yTop + hi);
       ctx.lineTo(x0 + hiW, yTop + hi);
@@ -1045,7 +1044,7 @@ function drawScopeInner() {
     ctx.stroke(); ctx.shadowBlur = 0;
   }
 
-  // ─── Draw burst (CH3) — как index_wifi.html, каждый импульс отдельно ───
+  // ─── Draw burst (CH3) — с ограничением числа операций для телефона ───
   function drawBurst(yTop, duty3, color, count, phase, cycles, spacingPx) {
     const cw = W / cycles;
     if (spacingPx === undefined) spacingPx = cw;
@@ -1059,17 +1058,21 @@ function drawScopeInner() {
     const impW = Math.max(2, cw / freqRatio);
     const hiW3 = impW * duty3 / 100;
     const firstBurst = (phOff % spacingPx) - spacingPx;
-    const maxBursts = 200;
+    const maxBursts = Math.min(60, Math.ceil((W + spacingPx * 2) / spacingPx));
+    const maxOps = 600;
+    let ops = 0;
 
-    for (let i = 0; i < maxBursts && i * spacingPx + firstBurst < W + spacingPx * 2; i++) {
+    for (let i = 0; i < maxBursts && ops < maxOps; i++) {
       const bStart = firstBurst + i * spacingPx;
-      for (let j = 0; j < count; j++) {
+      if (bStart > W + spacingPx) break;
+      for (let j = 0; j < count && ops < maxOps; j++) {
         const ix = bStart + j * impW;
         if (ix + hiW3 > 0 && ix < W) {
           ctx.moveTo(Math.max(0, ix), yTop + lo);
           ctx.lineTo(Math.max(0, ix), yTop + hi);
           ctx.lineTo(Math.min(W, ix + hiW3), yTop + hi);
           ctx.lineTo(Math.min(W, ix + hiW3), yTop + lo);
+          ops++;
         }
       }
     }
@@ -1114,16 +1117,19 @@ function drawScopeInner() {
       ctx.strokeStyle = color;
       ctx.beginPath();
       const extraPhOff = phaseOffset * ch1CycleW;
-      const zMaxI = 200;
-      for (let i = -3; i < zMaxI && i < cycles3 * (S.f3 / S.freq) + 4; i++) {
+      const zMaxI = Math.min(60, Math.ceil(cycles3 * (S.f3 / S.freq)) + 4);
+      const maxOps = 600;
+      let ops = 0;
+      for (let i = -3; i < zMaxI && ops < maxOps; i++) {
         const burstStart = i * ch1CycleW + phOff3 + extraPhOff - offsetPx;
-        for (let j = 0; j < S.n3; j++) {
+        for (let j = 0; j < S.n3 && ops < maxOps; j++) {
           const ix = burstStart + j * cw3;
           if (ix > -cw3 && ix < W + cw3) {
             ctx.moveTo(ix, lo2);
             ctx.lineTo(ix, hi2);
             ctx.lineTo(ix + hiW3, hi2);
             ctx.lineTo(ix + hiW3, lo2);
+            ops++;
           }
         }
       }
