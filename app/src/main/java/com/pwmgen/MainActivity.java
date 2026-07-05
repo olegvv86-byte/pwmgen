@@ -33,7 +33,6 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 
 /**
@@ -50,13 +49,8 @@ public class MainActivity extends Activity {
     private static final int WIFI_PORT = 8888;
     private static final String DEFAULT_IP = "192.168.4.1";
 
-    // Единый передатчик: команды коалесцируются по ключу и шлются пачкой каждые TX_FLUSH_MS.
-    private static final long TX_FLUSH_MS = 40;
-    // Статус из Pico отдаём в JS не чаще, чем раз в STATUS_PUSH_MS (защита от джанка UI).
     private static final long STATUS_PUSH_MS = 100;
-    // Сколько подряд ошибок записи терпим, прежде чем считать связь разорванной.
     private static final int MAX_WRITE_FAILS = 4;
-    // Таймаут записи в USB (мс). Один таймаут больше не рвёт соединение.
     private static final int USB_WRITE_TIMEOUT = 1000;
 
     private WebView webView;
@@ -82,9 +76,6 @@ public class MainActivity extends Activity {
     private final Object sendLock = new Object();
     private volatile boolean linkUp = false;
 
-    private final Object cmdLock = new Object();
-    private final HashMap<String, String> cmdLatest = new HashMap<>();
-    private volatile boolean sendThreadRunning = false;
     private volatile int writeFailCount = 0;
 
     private volatile String pendingStatusJson = null;
@@ -297,52 +288,14 @@ public class MainActivity extends Activity {
         }, STATUS_PUSH_MS);
     }
 
-    private void clearCmdQueue() {
-        synchronized (cmdLock) {
-            cmdLatest.clear();
-        }
-    }
-
     /**
-     * Все команды коалесцируются по ключу (остаётся только последнее значение) и
-     * отправляются единственным TX-потоком. Это убирает блокирующую запись из HTTP-воркеров
-     * и предотвращает наводнение канала промежуточными значениями ползунков.
+     * Как ПОБЕSДА на ПК: команда сразу уходит в TCP/USB — lock, write, flush.
+     * Никакой очереди, никакого TX-потока, никакой задержки.
      */
     private void queueCmd(String key, String value) {
         if (key == null || key.isEmpty()) return;
-        synchronized (cmdLock) {
-            cmdLatest.put(key, value);
-        }
-        ensureSendThread();
-    }
-
-    private void ensureSendThread() {
-        if (sendThreadRunning) return;
-        synchronized (cmdLock) {
-            if (sendThreadRunning) return;
-            sendThreadRunning = true;
-        }
-        new Thread(() -> {
-            while (sendThreadRunning) {
-                try {
-                    Thread.sleep(TX_FLUSH_MS);
-                } catch (InterruptedException e) {
-                    break;
-                }
-                if (!isTransportUp()) continue;
-                ArrayList<String> batch = new ArrayList<>();
-                synchronized (cmdLock) {
-                    if (cmdLatest.isEmpty()) continue;
-                    for (String k : new ArrayList<>(cmdLatest.keySet())) {
-                        String v = cmdLatest.remove(k);
-                        if (v != null) batch.add(k + ":" + v + "\n");
-                    }
-                }
-                for (String line : batch) {
-                    writeLine(line);
-                }
-            }
-        }, "pwmgen-tx").start();
+        if (!isTransportUp()) return;
+        writeLine(key + ":" + value + "\n");
     }
 
     private void writeLine(String line) {
@@ -357,16 +310,13 @@ public class MainActivity extends Activity {
         if (linkUp) return;
         linkUp = true;
         writeFailCount = 0;
-        ensureSendThread();
         mainHandler.post(() -> notifyJs("connected"));
     }
 
     private void onLinkDown() {
         if (!linkUp) return;
         linkUp = false;
-        sendThreadRunning = false;
         pendingStatusJson = null;
-        clearCmdQueue();
         clearRx();
         mainHandler.post(() -> notifyJs("disconnected"));
     }
@@ -392,7 +342,6 @@ public class MainActivity extends Activity {
             connMode = "usb";
             savePrefs();
             clearRx();
-            clearCmdQueue();
             startUsbRead();
             onLinkUp();
             mainHandler.post(() -> Toast.makeText(this, "USB подключён", Toast.LENGTH_SHORT).show());
@@ -470,7 +419,6 @@ public class MainActivity extends Activity {
             connMode = "wifi";
             savePrefs();
             clearRx();
-            clearCmdQueue();
             startWifiRead();
             onLinkUp();
             mainHandler.post(() -> Toast.makeText(this, "WiFi: " + host, Toast.LENGTH_SHORT).show());

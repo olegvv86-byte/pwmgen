@@ -552,7 +552,7 @@ function schedScopeSlider() {
   _sliderScopeT = setTimeout(() => {
     _sliderScopeT = null;
     schedScope();
-  }, 80);
+  }, 30);
 }
 
 function flushAllThrottles() {
@@ -584,8 +584,8 @@ function pollBlocked() {
   return sliderActive || phGesture;
 }
 
-const HEAVY_CMD_MS = 150;
-const LIGHT_CMD_MS = 150;
+const HEAVY_CMD_MS = 40;
+const LIGHT_CMD_MS = 40;
 
 function isWifi() {
   return isPhone() && _connMode !== 'usb';
@@ -671,6 +671,7 @@ function onPhSlider(v) {
 function onN3Slider(v) {
   S.n3 = parseInt(v);
   document.getElementById('sv-n3').textContent = S.n3;
+  throttleSend('n3', 'N3:'+S.n3+'\n', HEAVY_CMD_MS);
   schedScopeSlider();
 }
 
@@ -965,6 +966,7 @@ function initGesture() {
         S.ph = ((phStartVal + phDelta) % 1000 + 1000) % 1000;
         document.getElementById('sl-ph').value = S.ph;
         document.getElementById('sv-ph').textContent = S.ph;
+        throttleSend('ph', 'P3:'+S.ph+'\n', LIGHT_CMD_MS);
         schedScopeSlider();
       }
     }
@@ -1058,8 +1060,8 @@ function drawScopeInner() {
     const impW = Math.max(2, cw / freqRatio);
     const hiW3 = impW * duty3 / 100;
     const firstBurst = (phOff % spacingPx) - spacingPx;
-    const maxBursts = Math.min(60, Math.ceil((W + spacingPx * 2) / spacingPx));
-    const maxOps = 600;
+    const maxBursts = Math.min(100, Math.ceil((W + spacingPx * 2) / spacingPx));
+    const maxOps = 2000;
     let ops = 0;
 
     for (let i = 0; i < maxBursts && ops < maxOps; i++) {
@@ -1117,8 +1119,8 @@ function drawScopeInner() {
       ctx.strokeStyle = color;
       ctx.beginPath();
       const extraPhOff = phaseOffset * ch1CycleW;
-      const zMaxI = Math.min(60, Math.ceil(cycles3 * (S.f3 / S.freq)) + 4);
-      const maxOps = 600;
+      const zMaxI = Math.min(100, Math.ceil(cycles3 * (S.f3 / S.freq)) + 4);
+      const maxOps = 2000;
       let ops = 0;
       for (let i = -3; i < zMaxI && ops < maxOps; i++) {
         const burstStart = i * ch1CycleW + phOff3 + extraPhOff - offsetPx;
