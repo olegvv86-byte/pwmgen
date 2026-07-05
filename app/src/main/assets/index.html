@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>PWM GEN</title>
-<!-- HTML_VER: w9 -->
+<!-- HTML_VER: w11 -->
 <style>
 /* без @import — на Wi‑Fi Pico интернета нет, fonts.googleapis блокирует загрузку */
 
@@ -507,7 +507,6 @@ const SCOPE_DPR = (typeof AndroidUSB !== 'undefined')
   ? 1
   : Math.min(window.devicePixelRatio || 1, 1.5);
 let _cW = 0, _cH = 0, _scopeRaf = 0;
-let _scopeDeferTimer = 0;
 let uiGestureActive = false;
 
 function schedScope() {
@@ -517,7 +516,7 @@ function schedScope() {
 }
 
 // ─── Телефон: связь с платой ───
-const HTML_VER = 'w9';
+const HTML_VER = 'w11';
 let _connMode = 'wifi';
 
 function isPhone() {
@@ -578,6 +577,7 @@ function flushThrottle(key) {
 }
 
 function onFreqSlider(v) {
+  S.freq = parseInt(v);
   document.getElementById('sv-freq').textContent = S.freq;
   if (!sliderActive) buildDigits(S.freq, 'Hz');
   throttleSend('freq', 'F1:'+S.freq+'\n');
@@ -1115,13 +1115,65 @@ function drawScope() {
   });
 }
 
+// ─── Синхронизация с Pico ───
+function applyStatusToggles(d) {
+  if (d.lk !== undefined) {
+    ch3Linked = d.lk === 1;
+    const b12 = document.getElementById('btn-ch12');
+    b12.style.borderColor = !ch3Linked ? 'var(--orange)' : '';
+    b12.style.boxShadow = !ch3Linked ? '0 0 10px var(--orange)' : '';
+    document.getElementById('ch12-sub').textContent = !ch3Linked ? '⊥' : '1/2';
+  }
+  if (d.x2 !== undefined && d.x2 !== (x2Active ? 1 : 0)) {
+    x2Active = d.x2 === 1;
+    const btn = document.getElementById('btn-ch3');
+    btn.style.borderColor = x2Active ? 'var(--yellow)' : '';
+    btn.style.boxShadow = x2Active ? '0 0 10px var(--yellow)' : '';
+    btn.querySelector('sub').textContent = x2Active ? '×2' : '3';
+  }
+  if (d.pl !== undefined) pllActive = d.pl === 1;
+  if (d.pm !== undefined) pllMode = d.pm;
+  if (d.pl !== undefined || d.pm !== undefined) updatePllLabel();
+  if (d.iv !== undefined) {
+    invActive = d.iv === 1;
+    document.getElementById('btn-inv').classList.toggle('active', invActive);
+    document.getElementById('inv-sub').textContent = invActive ? 'ON' : 'OFF';
+  }
+}
+
+function applyStatusSliders(d) {
+  if (d.f1 === undefined) return;
+  S.freq = d.f1; S.duty = d.d1; S.f3 = d.f3; S.d3 = d.d3; S.n3 = d.n3; S.ph = d.p3;
+  if (d.fc !== undefined) S.fc = d.fc;
+  const f3val = ch3SubMode === 1 ? S.fc : S.f3;
+  document.getElementById('sl-freq').value = S.freq;
+  document.getElementById('sl-duty').value = S.duty;
+  document.getElementById('sl-f3').value = f3val;
+  document.getElementById('sl-d3').value = S.d3;
+  document.getElementById('sl-ph').value = S.ph;
+  document.getElementById('sl-n3').value = S.n3;
+  document.getElementById('sv-freq').textContent = S.freq;
+  document.getElementById('sv-duty').textContent = S.duty;
+  document.getElementById('sv-f3').textContent = fmtHz(f3val);
+  document.getElementById('sv-d3').textContent = S.d3;
+  document.getElementById('sv-ph').textContent = S.ph;
+  document.getElementById('sv-n3').textContent = S.n3;
+  document.getElementById('duty-top-val').textContent =
+    currentMode === 'd3' ? S.d3 : S.duty;
+  const units = {ch12:'Hz', duty:'%', ch3:'Hz', d3:'%', ch3p:'%'};
+  const vals = {ch12:S.freq, duty:S.duty, ch3:f3val, d3:S.d3, ch3p:S.ph};
+  buildDigits(vals[currentMode] || 0, units[currentMode] || '');
+  updateSum();
+  schedScope();
+}
+
 // ─── USB / WiFi ───
-let _lastDataMs = 0;
 
 window.onUsbEvent = function(event) {
   if (event === 'connected') {
     connected = true;
     _connMode = readConnMode();
+    _wifiSyncedOnce = false;
     document.getElementById('sdot').classList.add('on');
     document.getElementById('stxt').textContent = 'ONLINE';
     document.getElementById('conn-icon').textContent = isWifi() ? 'WiFi' : 'USB';
@@ -1144,86 +1196,21 @@ window.onUsbEvent = function(event) {
     try {
       const d = JSON.parse(event.substring(5).trim());
 
-      /** Wi‑Fi телефон: ползунки локальные, с Pico не перезаписываем (как RC-машинка). */
+      /** Wi‑Fi телефон: при подключении и в простое — реальные значения с Pico. */
       if (isWifi() && isPhone()) {
-        if (d.lk !== undefined) {
-          ch3Linked = d.lk === 1;
-          const b12 = document.getElementById('btn-ch12');
-          b12.style.borderColor = !ch3Linked ? 'var(--orange)' : '';
-          b12.style.boxShadow = !ch3Linked ? '0 0 10px var(--orange)' : '';
-          document.getElementById('ch12-sub').textContent = !ch3Linked ? '⊥' : '1/2';
-        }
-        if (d.x2 !== undefined && d.x2 !== (x2Active?1:0)) {
-          x2Active = d.x2 === 1;
-          const btn = document.getElementById('btn-ch3');
-          btn.style.borderColor = x2Active ? 'var(--yellow)' : '';
-          btn.style.boxShadow = x2Active ? '0 0 10px var(--yellow)' : '';
-          btn.querySelector('sub').textContent = x2Active ? '×2' : '3';
-        }
-        if (d.pl !== undefined) pllActive = d.pl === 1;
-        if (d.pm !== undefined) pllMode = d.pm;
-        if (d.pl !== undefined || d.pm !== undefined) updatePllLabel();
-        if (d.iv !== undefined) {
-          invActive = d.iv === 1;
-          document.getElementById('btn-inv').classList.toggle('active', invActive);
-          document.getElementById('inv-sub').textContent = invActive ? 'ON' : 'OFF';
+        applyStatusToggles(d);
+        const idle = Date.now() - _lastLocalCmdMs > IDLE_SYNC_MS;
+        if (!_wifiSyncedOnce || idle) {
+          applyStatusSliders(d);
+          _wifiSyncedOnce = true;
         }
         return;
       }
 
-      if (d.f1 !== undefined) {
-        if (!sliderActive) {
-          S.freq=d.f1; S.duty=d.d1; S.f3=d.f3; S.d3=d.d3; S.n3=d.n3; S.ph=d.p3;
-          if (d.fc !== undefined) S.fc = d.fc;
-          document.getElementById('sl-freq').value = S.freq;
-          document.getElementById('sl-duty').value = S.duty;
-          const f3val = ch3SubMode === 1 ? S.fc : S.f3;
-          document.getElementById('sl-f3').value = f3val;
-          document.getElementById('sl-d3').value = S.d3;
-          document.getElementById('sl-ph').value = S.ph;
-          document.getElementById('sl-n3').value = S.n3;
-          document.getElementById('sv-freq').textContent = S.freq;
-          document.getElementById('sv-duty').textContent = S.duty;
-          document.getElementById('sv-f3').textContent = fmtHz(f3val);
-          document.getElementById('sv-d3').textContent = S.d3;
-          document.getElementById('sv-ph').textContent = S.ph;
-          document.getElementById('sv-n3').textContent = S.n3;
-          document.getElementById('duty-top-val').textContent =
-            currentMode === 'd3' ? S.d3 : S.duty;
-          const units = {ch12:'Hz', duty:'%', ch3:'Hz', d3:'%', ch3p:'%'};
-          const vals = {ch12:S.freq, duty:S.duty, ch3:f3val, d3:S.d3, ch3p:S.ph};
-          buildDigits(vals[currentMode]||0, units[currentMode]||'');
-          updateSum(); schedScope();
-        }
-        if (d.lk !== undefined) {
-          ch3Linked = d.lk === 1;
-          const b12 = document.getElementById('btn-ch12');
-          b12.style.borderColor = !ch3Linked ? 'var(--orange)' : '';
-          b12.style.boxShadow = !ch3Linked ? '0 0 10px var(--orange)' : '';
-          document.getElementById('ch12-sub').textContent = !ch3Linked ? '⊥' : '1/2';
-        }
-        if (d.x2 !== undefined && d.x2 !== (x2Active?1:0)) {
-          x2Active = d.x2 === 1;
-          const btn = document.getElementById('btn-ch3');
-          btn.style.borderColor = x2Active ? 'var(--yellow)' : '';
-          btn.style.boxShadow = x2Active ? '0 0 10px var(--yellow)' : '';
-          btn.querySelector('sub').textContent = x2Active ? '×2' : '3';
-        }
-        if (d.pl !== undefined) {
-          pllActive = d.pl === 1;
-        }
-        if (d.pm !== undefined) {
-          pllMode = d.pm;
-        }
-        if (d.pl !== undefined || d.pm !== undefined) {
-          updatePllLabel();
-        }
-        if (d.iv !== undefined) {
-          invActive = d.iv === 1;
-          document.getElementById('btn-inv').classList.toggle('active', invActive);
-          document.getElementById('inv-sub').textContent = invActive ? 'ON' : 'OFF';
-        }
+      if (d.f1 !== undefined && !sliderActive) {
+        applyStatusSliders(d);
       }
+      applyStatusToggles(d);
     } catch(e) {}
   }
 };
@@ -1251,6 +1238,7 @@ function sendRaw(s) {
   const cmd = s.trim();
   if (!cmd) return;
   if (cmd === 'GET' && isWifi()) return;
+  _lastLocalCmdMs = Date.now();
   try { AndroidUSB.send(s); } catch (e) {}
 }
 

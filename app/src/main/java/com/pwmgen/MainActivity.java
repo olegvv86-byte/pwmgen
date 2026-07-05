@@ -37,14 +37,20 @@ import java.util.List;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * Wi‑Fi: встроенный прокси как на ноутбуке (C# + index_wifi.html).
+ * Команды — сразу в TCP. JSON от Pico — только в буфер Java.
+ * В WebView — максимум раз в 600 ms и только когда 1.5 s нет команд.
+ */
 public class MainActivity extends Activity {
 
     private static final String ACTION_USB_PERMISSION = "com.pwmgen.USB_PERMISSION";
     private static final int BAUD_RATE = 115200;
     private static final int WIFI_PORT = 8888;
-    /** Не слать JSON в WebView пока идут команды — главная причина фризов. */
-    private static final int WIFI_STATUS_QUIET_MS = 2000;
-    private static final int WIFI_STATUS_MIN_MS = 800;
+    /** Как pollStatus() на ПК — 600 ms. */
+    private static final int STATUS_POLL_MS = 600;
+    /** Как sliderActive 1500 ms на ПК — пока крутят ползунок, JSON не в UI. */
+    private static final int CMD_QUIET_MS = 1500;
 
     private WebView webView;
     private UsbManager usbManager;
@@ -60,32 +66,33 @@ public class MainActivity extends Activity {
     private String connMode = "usb";
 
     private volatile long lastWifiCmdMs = 0;
-    private long lastStatusJsMs = 0;
-    private String pendingStatusJson = null;
+    private volatile String latestStatusJson = null;
+    private volatile boolean needInitialStatus = false;
+    private volatile boolean statusPollRunning = false;
 
     private final Object wifiCmdLock = new Object();
     private final HashMap<String, String> wifiCmdLatest = new HashMap<>();
     private final LinkedBlockingQueue<Object> wifiSendSignal = new LinkedBlockingQueue<>();
     private volatile boolean wifiSendRunning = false;
 
-    private final Runnable deliverStatusRunnable = new Runnable() {
+    private final Runnable statusPollRunnable = new Runnable() {
         @Override
         public void run() {
-            if (pendingStatusJson == null) return;
+            if (!statusPollRunning || !wifiReading) return;
+            mainHandler.postDelayed(this, STATUS_POLL_MS);
+
+            String json = latestStatusJson;
+            if (json == null) return;
+
             long now = System.currentTimeMillis();
-            if (now - lastWifiCmdMs < WIFI_STATUS_QUIET_MS) {
-                mainHandler.postDelayed(this, WIFI_STATUS_QUIET_MS - (now - lastWifiCmdMs));
+            if (needInitialStatus) {
+                needInitialStatus = false;
+                deliverStatusToJs(json);
                 return;
             }
-            long wait = WIFI_STATUS_MIN_MS - (now - lastStatusJsMs);
-            if (wait > 0) {
-                mainHandler.postDelayed(this, wait);
-                return;
-            }
-            String line = pendingStatusJson;
-            pendingStatusJson = null;
-            lastStatusJsMs = now;
-            notifyJs("data:" + line);
+            if (now - lastWifiCmdMs < CMD_QUIET_MS) return;
+
+            deliverStatusToJs(json);
         }
     };
 
@@ -141,16 +148,21 @@ public class MainActivity extends Activity {
         public String getMode() {
             return connMode;
         }
-
-        /** Совместимость со старым HTML — no-op. */
-        @JavascriptInterface
-        public void setSliderBusy(boolean busy) {}
     }
 
-    private void scheduleStatusDelivery() {
-        if (pendingStatusJson == null) return;
-        mainHandler.removeCallbacks(deliverStatusRunnable);
-        mainHandler.post(deliverStatusRunnable);
+    private void deliverStatusToJs(String json) {
+        notifyJs("data:" + json);
+    }
+
+    private void startStatusPoll() {
+        if (statusPollRunning) return;
+        statusPollRunning = true;
+        mainHandler.post(statusPollRunnable);
+    }
+
+    private void stopStatusPoll() {
+        statusPollRunning = false;
+        mainHandler.removeCallbacks(statusPollRunnable);
     }
 
     private void showConnMenu() {
@@ -256,8 +268,12 @@ public class MainActivity extends Activity {
             wifiSocket = sock;
             wifiOut = sock.getOutputStream();
             wifiReading = true;
+            lastWifiCmdMs = 0;
+            latestStatusJson = null;
+            needInitialStatus = true;
             startWifiSendThread();
             startWifiRead();
+            startStatusPoll();
             mainHandler.post(() -> {
                 Toast.makeText(this, "WiFi подключён!", Toast.LENGTH_SHORT).show();
                 notifyJs("connected");
@@ -303,7 +319,6 @@ public class MainActivity extends Activity {
     private void sendWifi(String data) {
         if (!wifiSendRunning || wifiOut == null || data == null) return;
         lastWifiCmdMs = System.currentTimeMillis();
-        mainHandler.removeCallbacks(deliverStatusRunnable);
         String line = data.endsWith("\n") ? data : data + "\n";
         int c = line.indexOf(':');
         String key = c > 0 ? line.substring(0, c) : line;
@@ -316,12 +331,13 @@ public class MainActivity extends Activity {
     private void disconnectWifi() {
         wifiReading = false;
         wifiSendRunning = false;
+        stopStatusPoll();
         wifiSendSignal.clear();
         synchronized (wifiCmdLock) {
             wifiCmdLatest.clear();
         }
-        pendingStatusJson = null;
-        mainHandler.removeCallbacks(deliverStatusRunnable);
+        latestStatusJson = null;
+        needInitialStatus = false;
         try {
             if (wifiSocket != null) wifiSocket.close();
         } catch (Exception ignored) {}
@@ -358,8 +374,7 @@ public class MainActivity extends Activity {
             buf.delete(0, idx + 1);
             if (line.isEmpty()) continue;
             if (wifi && line.startsWith("{")) {
-                pendingStatusJson = line;
-                scheduleStatusDelivery();
+                latestStatusJson = line;
                 continue;
             }
             final String fl = line;
