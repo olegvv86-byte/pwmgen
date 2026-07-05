@@ -84,6 +84,8 @@ public class MainActivity extends Activity {
     private final Object txSignal = new Object();
     private final HashMap<String, String> txMap = new HashMap<>();
     private volatile boolean txAlive = false;
+    private volatile boolean running = true;
+    private volatile boolean allowReconnect = false;
 
 
     @Override
@@ -101,15 +103,27 @@ public class MainActivity extends Activity {
         registerUsbReceiver();
 
         if ("wifi".equals(connMode)) {
-            new Thread(() -> connectWifi(wifiHost)).start();
+            new Thread(() -> connectWifi(wifiHost, false)).start();
         } else {
             mainHandler.postDelayed(() -> {
                 String r = connectUsb();
                 if ("NO_DEVICE".equals(r)) {
-                    new Thread(() -> connectWifi(wifiHost)).start();
+                    new Thread(() -> connectWifi(wifiHost, false)).start();
                 }
             }, 300);
         }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        allowReconnect = true;
+    }
+
+    @Override
+    protected void onPause() {
+        allowReconnect = false;
+        super.onPause();
     }
 
     private void loadPrefs() {
@@ -191,7 +205,7 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public String connect() {
             if ("wifi".equals(connMode)) {
-                new Thread(() -> connectWifi(wifiHost)).start();
+                new Thread(() -> connectWifi(wifiHost, true)).start();
                 return "WIFI";
             }
             return connectUsb();
@@ -243,7 +257,7 @@ public class MainActivity extends Activity {
                 savePrefs();
                 new Thread(() -> {
                     disconnectUsb();
-                    connectWifi(wifiHost);
+                    connectWifi(wifiHost, true);
                 }).start();
             })
             .setNegativeButton("Отмена", null).show();
@@ -329,7 +343,7 @@ public class MainActivity extends Activity {
     }
 
     private void onLinkUp() {
-        if (linkUp) return;
+        if (!running || linkUp) return;
         linkUp = true;
         writeFailCount = 0;
         ensureTxThread();
@@ -429,7 +443,8 @@ public class MainActivity extends Activity {
         }, "pwmgen-usb-rx").start();
     }
 
-    private void connectWifi(String host) {
+    private void connectWifi(String host, boolean showToast) {
+        if (!running) return;
         try {
             disconnectWifiQuiet();
             DatagramSocket sock = new DatagramSocket(null);
@@ -446,12 +461,18 @@ public class MainActivity extends Activity {
             startWifiRead();
             sendWifiLine("GET\n");
             onLinkUp();
-            mainHandler.post(() -> Toast.makeText(this, "WiFi UDP: " + host, Toast.LENGTH_SHORT).show());
+            if (showToast && running) {
+                mainHandler.post(() -> {
+                    if (running) Toast.makeText(this, "WiFi: " + host, Toast.LENGTH_SHORT).show();
+                });
+            }
         } catch (Exception e) {
-            mainHandler.post(() -> {
-                Toast.makeText(this, "WiFi: " + e.getMessage(), Toast.LENGTH_LONG).show();
-                onLinkDown();
-            });
+            if (showToast && running) {
+                mainHandler.post(() -> {
+                    if (running) Toast.makeText(this, "WiFi: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                });
+            }
+            onLinkDown();
         }
     }
 
@@ -507,10 +528,16 @@ public class MainActivity extends Activity {
                     break;
                 }
             }
-            if (wifiReading) {
+            if (wifiReading && running && allowReconnect) {
                 wifiReading = false;
                 onLinkDown();
-                mainHandler.post(() -> new Thread(() -> connectWifi(wifiHost)).start());
+                try { Thread.sleep(2000); } catch (InterruptedException ignored) {}
+                if (running && allowReconnect) {
+                    connectWifi(wifiHost, false);
+                }
+            } else if (wifiReading) {
+                wifiReading = false;
+                onLinkDown();
             }
         }, "pwmgen-wifi-udp").start();
     }
@@ -526,7 +553,7 @@ public class MainActivity extends Activity {
     }
 
     private void notifyJs(String event) {
-        if (webView == null) return;
+        if (!running || webView == null) return;
         String safe = event.replace("\\", "\\\\")
             .replace("'", "\\'")
             .replace("\r", "")
@@ -558,6 +585,8 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        running = false;
+        allowReconnect = false;
         super.onDestroy();
         if (proxyServer != null) proxyServer.stop();
         disconnectUsbQuiet();
