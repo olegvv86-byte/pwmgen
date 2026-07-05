@@ -50,7 +50,6 @@ public class MainActivity extends Activity {
     private static final int WIFI_PORT = 8888;
     private static final String DEFAULT_IP = "192.168.4.1";
 
-    private static final long STATUS_PUSH_MS = 100;
     private static final int MAX_WRITE_FAILS = 4;
     private static final int USB_WRITE_TIMEOUT = 1000;
 
@@ -82,8 +81,6 @@ public class MainActivity extends Activity {
     private final HashMap<String, String> txMap = new HashMap<>();
     private volatile boolean txAlive = false;
 
-    private volatile String pendingStatusJson = null;
-    private volatile boolean statusPushScheduled = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -274,22 +271,6 @@ public class MainActivity extends Activity {
             rxLines.add(line);
             if (rxLines.size() > 500) rxLines.remove(0);
         }
-        if (line.startsWith("{")) {
-            scheduleStatusPush(line);
-        }
-    }
-
-    /** Коалесцируем всплески статуса: в JS уходит не чаще одного пуша за STATUS_PUSH_MS. */
-    private void scheduleStatusPush(String json) {
-        pendingStatusJson = json;
-        if (statusPushScheduled) return;
-        statusPushScheduled = true;
-        mainHandler.postDelayed(() -> {
-            statusPushScheduled = false;
-            String j = pendingStatusJson;
-            pendingStatusJson = null;
-            if (j != null) notifyJs("data:" + j);
-        }, STATUS_PUSH_MS);
     }
 
     /**
@@ -348,7 +329,6 @@ public class MainActivity extends Activity {
         linkUp = false;
         txAlive = false;
         synchronized (txSignal) { txMap.clear(); txSignal.notify(); }
-        pendingStatusJson = null;
         clearRx();
         mainHandler.post(() -> notifyJs("disconnected"));
     }

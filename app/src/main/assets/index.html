@@ -699,7 +699,7 @@ document.addEventListener('touchend', e => {
       uiGestureActive = false;
       updateSum();
       schedScope();
-    }, 150);
+    }, 2000);
   }
 }, {passive:true});
 ['sl-freq','sl-duty','sl-f3','sl-d3','sl-ph','sl-n3'].forEach(id => {
@@ -1272,7 +1272,7 @@ window.onUsbEvent = function(event) {
     if (window._si) clearInterval(window._si);
     window._si = null;
     if (useProxy()) {
-      if (!_pollTimer) _pollTimer = setInterval(pollStatus, 2000);
+      if (!_pollTimer) _pollTimer = setInterval(pollStatus, 500);
     } else if (isUsbPhone()) {
       setTimeout(() => sendRaw('GET\n'), 500);
       window._si = setInterval(() => { if (connected) sendRaw('GET\n'); }, 2000);
@@ -1353,7 +1353,7 @@ window.addEventListener('load', () => {
     if (useNativeScope()) document.body.classList.add('native-scope');
   }
   if (useProxy() && !_pollTimer) {
-    _pollTimer = setInterval(pollStatus, 2000);
+    _pollTimer = setInterval(pollStatus, 500);
   }
   selectMode('ch12');
   updateSum();
