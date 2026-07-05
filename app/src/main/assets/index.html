@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>PWM GEN</title>
-<!-- HTML_VER: 20260705-w5 — видно в conn-sub при WiFi -->
+<!-- HTML_VER: w7 -->
 <style>
 /* без @import — на Wi‑Fi Pico интернета нет, fonts.googleapis блокирует загрузку */
 
@@ -503,18 +503,35 @@ function digitChg(dir) {
 }
 
 // ─── Отрисовка (лёгкая, не блокирует команды) ───
-const SCOPE_DPR = Math.min(window.devicePixelRatio || 1, 1.5);
+const SCOPE_DPR = (typeof AndroidUSB !== 'undefined')
+  ? 1
+  : Math.min(window.devicePixelRatio || 1, 1.5);
 let _cW = 0, _cH = 0, _scopeRaf = 0;
+let _scopeDeferTimer = 0;
+let uiGestureActive = false;
 
 function schedScope() {
-  if (sliderActive && isPhone()) return;
+  if ((sliderActive || uiGestureActive) && isPhone()) return;
   if (!_scopeRaf) {
     _scopeRaf = requestAnimationFrame(() => { _scopeRaf = 0; drawScope(); });
   }
 }
 
+function schedScopeFromStatus() {
+  if (isWifi() && isPhone()) {
+    if (!_scopeDeferTimer) {
+      _scopeDeferTimer = setTimeout(() => {
+        _scopeDeferTimer = 0;
+        schedScope();
+      }, 500);
+    }
+    return;
+  }
+  schedScope();
+}
+
 // ─── Телефон: связь с платой (не зависит от getMode()==='wifi') ───
-const HTML_VER = 'w5';
+const HTML_VER = 'w7';
 let _connMode = 'wifi';
 
 function isPhone() {
@@ -540,13 +557,18 @@ function isUsbPhone() {
   return isPhone() && _connMode === 'usb';
 }
 
-/** Тяжёлые N3/F3/D3 на Wi‑Fi — реже (apply_ch3 блокирует Wi‑Fi чип). */
+/** Wi‑Fi: лёгкие P3/F1/D1 — 40ms; тяжёлые N3/F3/D3 — при отпускании. */
 function cmdMs(key) {
   if (isUsbPhone()) return 40;
   if (!isWifi()) return 40;
   if (key === 'n3' || key === 'f3' || key === 'd3') return 150;
-  if (key === 'ph') return 50;
-  return 60;
+  return 40;
+}
+
+function setSliderBusy(on) {
+  if (isPhone() && typeof AndroidUSB.setSliderBusy === 'function') {
+    try { AndroidUSB.setSliderBusy(!!on); } catch (e) {}
+  }
 }
 
 const throttleLast = {};
@@ -641,12 +663,16 @@ let sliderDebounce = null;
 
 // Глобальное отслеживание касания ползунков
 document.addEventListener('touchstart', e => {
-  if (e.target && e.target.type === 'range') sliderActive = true;
+  if (e.target && e.target.type === 'range') {
+    sliderActive = true;
+    setSliderBusy(true);
+  }
 }, {passive:true});
 document.addEventListener('touchend', e => {
   if (e.target && e.target.type === 'range') {
     ['freq','duty','f3','d3','ph','n3'].forEach(flushThrottle);
-    setTimeout(() => { sliderActive = false; schedScope(); }, 400);
+    setSliderBusy(false);
+    setTimeout(() => { sliderActive = false; schedScope(); }, 300);
   }
 }, {passive:true});
 
@@ -873,6 +899,8 @@ function initGesture() {
         const h = wrap.offsetHeight;
         if (y > h * 0.67) {
           phGesture = true;
+          uiGestureActive = true;
+          setSliderBusy(true);
           phStartX = e.touches[0].clientX;
           phStartVal = S.ph;
         }
@@ -913,7 +941,12 @@ function initGesture() {
 
   wrap.addEventListener('touchend', e => {
     if (e.touches.length === 0) {
-      if (phGesture) { sendRaw('P3:'+S.ph+'\n'); phGesture = false; }
+      if (phGesture) {
+        sendRaw('P3:'+S.ph+'\n');
+        phGesture = false;
+        uiGestureActive = false;
+        setSliderBusy(false);
+      }
       isPanning = false;
     }
   });
@@ -1146,7 +1179,7 @@ window.onUsbEvent = function(event) {
   } else if (event.startsWith('data:')) {
     if (sliderActive) return;
     const now = Date.now();
-    if (isWifi() && now - _lastDataMs < 400) return;
+    if (isWifi() && now - _lastDataMs < 500) return;
     _lastDataMs = now;
     try {
       const d = JSON.parse(event.substring(5).trim());
@@ -1174,7 +1207,7 @@ window.onUsbEvent = function(event) {
           const units = {ch12:'Hz', duty:'%', ch3:'Hz', d3:'%', ch3p:'%'};
           const vals = {ch12:S.freq, duty:S.duty, ch3:f3val, d3:S.d3, ch3p:S.ph};
           buildDigits(vals[currentMode]||0, units[currentMode]||'');
-          updateSum(); schedScope();
+          updateSum(); schedScopeFromStatus();
         }
         if (d.lk !== undefined) {
           ch3Linked = d.lk === 1;
