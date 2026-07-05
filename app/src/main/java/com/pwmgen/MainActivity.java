@@ -375,6 +375,11 @@ public class MainActivity extends Activity {
             if (line.isEmpty()) continue;
             if (wifi && line.startsWith("{")) {
                 latestStatusJson = line;
+                if (needInitialStatus) {
+                    needInitialStatus = false;
+                    final String snap = line;
+                    mainHandler.post(() -> deliverStatusToJs(snap));
+                }
                 continue;
             }
             final String fl = line;

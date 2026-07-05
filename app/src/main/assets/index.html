@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>PWM GEN</title>
-<!-- HTML_VER: w11 -->
+<!-- HTML_VER: w12 -->
 <style>
 /* без @import — на Wi‑Fi Pico интернета нет, fonts.googleapis блокирует загрузку */
 
@@ -516,7 +516,8 @@ function schedScope() {
 }
 
 // ─── Телефон: связь с платой ───
-const HTML_VER = 'w11';
+const HTML_VER = 'w12';
+let _picoReady = false;
 let _connMode = 'wifi';
 
 function isPhone() {
@@ -1173,7 +1174,6 @@ window.onUsbEvent = function(event) {
   if (event === 'connected') {
     connected = true;
     _connMode = readConnMode();
-    _wifiSyncedOnce = false;
     document.getElementById('sdot').classList.add('on');
     document.getElementById('stxt').textContent = 'ONLINE';
     document.getElementById('conn-icon').textContent = isWifi() ? 'WiFi' : 'USB';
@@ -1195,21 +1195,7 @@ window.onUsbEvent = function(event) {
     if (sliderActive || uiGestureActive) return;
     try {
       const d = JSON.parse(event.substring(5).trim());
-
-      /** Wi‑Fi телефон: при подключении и в простое — реальные значения с Pico. */
-      if (isWifi() && isPhone()) {
-        applyStatusToggles(d);
-        const idle = Date.now() - _lastLocalCmdMs > IDLE_SYNC_MS;
-        if (!_wifiSyncedOnce || idle) {
-          applyStatusSliders(d);
-          _wifiSyncedOnce = true;
-        }
-        return;
-      }
-
-      if (d.f1 !== undefined && !sliderActive) {
-        applyStatusSliders(d);
-      }
+      if (d.f1 !== undefined && !sliderActive) applyStatusSliders(d);
       applyStatusToggles(d);
     } catch(e) {}
   }
@@ -1238,7 +1224,6 @@ function sendRaw(s) {
   const cmd = s.trim();
   if (!cmd) return;
   if (cmd === 'GET' && isWifi()) return;
-  _lastLocalCmdMs = Date.now();
   try { AndroidUSB.send(s); } catch (e) {}
 }
 
