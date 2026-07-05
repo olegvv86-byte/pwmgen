@@ -60,7 +60,6 @@ public class MainActivity extends Activity {
     private static final int USB_WRITE_TIMEOUT = 1000;
 
     private WebView webView;
-    private ScopeView scopeView;
     private UsbManager usbManager;
     private UsbSerialPort serialPort;
     private Handler mainHandler;
@@ -180,7 +179,6 @@ public class MainActivity extends Activity {
 
     private void setupWebView() {
         webView = findViewById(R.id.webview);
-        scopeView = findViewById(R.id.scope_overlay);
         webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
         WebSettings s = webView.getSettings();
         s.setJavaScriptEnabled(true);
@@ -188,9 +186,6 @@ public class MainActivity extends Activity {
         s.setAllowFileAccess(false);
         s.setCacheMode(WebSettings.LOAD_NO_CACHE);
         webView.addJavascriptInterface(new UsbBridge(), "AndroidUSB");
-        // Осциллограф рисуется прямо в WebView (canvas). Нативный оверлей отключён:
-        // на устройстве он не позиционировался и область осциллографа оставалась пустой.
-        if (scopeView != null) scopeView.setVisibility(View.GONE);
 
         int port = httpPort > 0 ? httpPort : 18088;
         webView.loadUrl("http://127.0.0.1:" + port + "/");
