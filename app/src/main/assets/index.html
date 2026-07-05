@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>PWM GEN</title>
-<!-- HTML_VER: w7 -->
+<!-- HTML_VER: w8 -->
 <style>
 /* без @import — на Wi‑Fi Pico интернета нет, fonts.googleapis блокирует загрузку */
 
@@ -511,7 +511,6 @@ let _scopeDeferTimer = 0;
 let uiGestureActive = false;
 
 function schedScope() {
-  if ((sliderActive || uiGestureActive) && isPhone()) return;
   if (!_scopeRaf) {
     _scopeRaf = requestAnimationFrame(() => { _scopeRaf = 0; drawScope(); });
   }
@@ -531,7 +530,7 @@ function schedScopeFromStatus() {
 }
 
 // ─── Телефон: связь с платой (не зависит от getMode()==='wifi') ───
-const HTML_VER = 'w7';
+const HTML_VER = 'w8';
 let _connMode = 'wifi';
 
 function isPhone() {
@@ -557,12 +556,13 @@ function isUsbPhone() {
   return isPhone() && _connMode === 'usb';
 }
 
-/** Wi‑Fi: лёгкие P3/F1/D1 — 40ms; тяжёлые N3/F3/D3 — при отпускании. */
+/** Wi‑Fi: лёгкие — 50ms в полёте; F3/D3 — 200ms; N3 — только при отпускании (тяжёлая прошивка). */
 function cmdMs(key) {
   if (isUsbPhone()) return 40;
   if (!isWifi()) return 40;
-  if (key === 'n3' || key === 'f3' || key === 'd3') return 150;
-  return 40;
+  if (key === 'n3') return 400;
+  if (key === 'f3' || key === 'd3') return 200;
+  return 50;
 }
 
 function setSliderBusy(on) {
@@ -600,9 +600,9 @@ function flushThrottle(key) {
   }
 }
 
-/** Wi‑Fi: тяжёлые команды — только в буфер, отправка при отпускании (как прокси на ПК). */
+/** N3 на Pico пересобирает PIO — только при отпускании; остальное — throttle в полёте. */
 function sendCmd(key, cmd) {
-  if (isWifi() && (key === 'n3' || key === 'f3' || key === 'd3')) {
+  if (isWifi() && key === 'n3') {
     throttleLast[key] = cmd;
     return;
   }
@@ -671,8 +671,9 @@ document.addEventListener('touchstart', e => {
 document.addEventListener('touchend', e => {
   if (e.target && e.target.type === 'range') {
     ['freq','duty','f3','d3','ph','n3'].forEach(flushThrottle);
+    sliderActive = false;
     setSliderBusy(false);
-    setTimeout(() => { sliderActive = false; schedScope(); }, 300);
+    schedScope();
   }
 }, {passive:true});
 
@@ -934,6 +935,7 @@ function initGesture() {
         S.ph = ((phStartVal + phDelta) % 1000 + 1000) % 1000;
         document.getElementById('sl-ph').value = S.ph;
         document.getElementById('sv-ph').textContent = S.ph;
+        throttleSend('ph', 'P3:'+S.ph+'\n');
         schedScope();
       }
     }
@@ -942,7 +944,7 @@ function initGesture() {
   wrap.addEventListener('touchend', e => {
     if (e.touches.length === 0) {
       if (phGesture) {
-        sendRaw('P3:'+S.ph+'\n');
+        flushThrottle('ph');
         phGesture = false;
         uiGestureActive = false;
         setSliderBusy(false);
@@ -1022,7 +1024,8 @@ function drawScope() {
 
     for (let i = 0; i * spacingPx + firstBurst < W + spacingPx * 2; i++) {
       const bStart = firstBurst + i * spacingPx;
-      for (let j = 0; j < count; j++) {
+      const step = (isPhone() && count > 24) ? Math.ceil(count / 24) : 1;
+      for (let j = 0; j < count; j += step) {
         const ix = bStart + j * impW;
         if (ix + hiW3 > 0 && ix < W) {
           ctx.moveTo(Math.max(0, ix), yTop + lo);
