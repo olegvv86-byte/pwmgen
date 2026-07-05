@@ -34,6 +34,7 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 
 /**
@@ -72,6 +73,10 @@ public class MainActivity extends Activity {
     private final ArrayList<String> rxLines = new ArrayList<>();
     private final Object sendLock = new Object();
     private volatile boolean linkUp = false;
+
+    private final Object cmdLock = new Object();
+    private final HashMap<String, String> cmdLatest = new HashMap<>();
+    private volatile boolean sendThreadRunning = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -143,7 +148,7 @@ public class MainActivity extends Activity {
 
             @Override
             public void onCmd(String key, String value) {
-                picoSend(key, value);
+                queueCmd(key, value);
             }
 
             @Override
@@ -264,9 +269,47 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void picoSend(String key, String value) {
+    private void clearCmdQueue() {
+        synchronized (cmdLock) {
+            cmdLatest.clear();
+        }
+    }
+
+    private void queueCmd(String key, String value) {
         if (key == null || key.isEmpty()) return;
-        String line = key + ":" + value + "\n";
+        synchronized (cmdLock) {
+            cmdLatest.put(key, value);
+        }
+        ensureSendThread();
+    }
+
+    private void ensureSendThread() {
+        if (sendThreadRunning) return;
+        sendThreadRunning = true;
+        new Thread(() -> {
+            while (sendThreadRunning) {
+                try {
+                    Thread.sleep(30);
+                    if (!isTransportUp()) continue;
+                    ArrayList<String> batch = new ArrayList<>();
+                    synchronized (cmdLock) {
+                        if (cmdLatest.isEmpty()) continue;
+                        for (String k : new ArrayList<>(cmdLatest.keySet())) {
+                            String v = cmdLatest.remove(k);
+                            if (v != null) batch.add(k + ":" + v + "\n");
+                        }
+                    }
+                    for (String line : batch) {
+                        writeLine(line);
+                    }
+                } catch (InterruptedException e) {
+                    break;
+                }
+            }
+        }, "pwmgen-tx").start();
+    }
+
+    private void writeLine(String line) {
         if ("wifi".equals(connMode)) {
             sendWifiLine(line);
         } else {
@@ -283,6 +326,8 @@ public class MainActivity extends Activity {
     private void onLinkDown() {
         if (!linkUp) return;
         linkUp = false;
+        sendThreadRunning = false;
+        clearCmdQueue();
         clearRx();
         mainHandler.post(() -> notifyJs("disconnected"));
     }
@@ -308,7 +353,9 @@ public class MainActivity extends Activity {
             connMode = "usb";
             savePrefs();
             clearRx();
+            clearCmdQueue();
             startUsbRead();
+            ensureSendThread();
             onLinkUp();
             mainHandler.post(() -> Toast.makeText(this, "USB подключён", Toast.LENGTH_SHORT).show());
             return "OK";
@@ -380,7 +427,9 @@ public class MainActivity extends Activity {
             connMode = "wifi";
             savePrefs();
             clearRx();
+            clearCmdQueue();
             startWifiRead();
+            ensureSendThread();
             onLinkUp();
             mainHandler.post(() -> Toast.makeText(this, "WiFi: " + host, Toast.LENGTH_SHORT).show());
         } catch (Exception e) {

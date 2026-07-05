@@ -8,7 +8,8 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.nio.charset.StandardCharsets;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /** Локальный HTTP как HttpListener в POBEDA (localhost → /cmd, /status). */
 public class LocalProxyServer implements Runnable {
@@ -27,6 +28,7 @@ public class LocalProxyServer implements Runnable {
     private volatile boolean running = true;
     private ServerSocket server;
     private int port = 18088;
+    private final ExecutorService workers = Executors.newFixedThreadPool(4);
 
     public LocalProxyServer(Callback callback) {
         this.callback = callback;
@@ -59,6 +61,7 @@ public class LocalProxyServer implements Runnable {
 
     public void stop() {
         running = false;
+        workers.shutdownNow();
         try {
             if (server != null) server.close();
         } catch (IOException ignored) {}
@@ -72,9 +75,7 @@ public class LocalProxyServer implements Runnable {
         while (running) {
             try {
                 Socket client = server.accept();
-                Thread t = new Thread(() -> handle(client), "pwmgen-http-req");
-                t.setDaemon(true);
-                t.start();
+                workers.execute(() -> handle(client));
             } catch (IOException e) {
                 if (running) {
                     try {
