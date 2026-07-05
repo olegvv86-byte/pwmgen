@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>PWM GEN</title>
-<!-- HTML_VER: p5 -->
+<!-- HTML_VER: p6 -->
 <style>
 /* без @import — на Wi‑Fi Pico интернета нет, fonts.googleapis блокирует загрузку */
 
@@ -80,7 +80,8 @@ body {
 
 /* ═══ SCOPE ═══ */
 .scope-wrap { flex: 1; position: relative; overflow: hidden; }
-canvas#scope { position: absolute; inset: 0; width: 100%; height: 100%; }
+canvas#scope { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; pointer-events: none; }
+body.native-scope canvas#scope { display: none; }
 
 /* ═══ FREQ/DUTY BAR (top overlay) ═══ */
 .top-bar {
@@ -514,7 +515,26 @@ const SCOPE_DPR = (useProxy() || typeof AndroidUSB !== 'undefined')
 let _cW = 0, _cH = 0, _scopeRaf = 0;
 let uiGestureActive = false;
 
+function useNativeScope() {
+  return typeof NativeScope !== 'undefined';
+}
+
+function pushScopeState() {
+  if (!useNativeScope()) return;
+  try {
+    NativeScope.update(JSON.stringify({
+      freq: S.freq, duty: S.duty, f3: S.f3, fc: S.fc, d3: S.d3, n3: S.n3, ph: S.ph,
+      lk: ch3Linked ? 1 : 0, x2: x2Active ? 1 : 0, zoom: zoomCH3 ? 1 : 0,
+      ts: timeScale, vs: viewStart
+    }));
+  } catch (e) {}
+}
+
 function schedScope() {
+  if (useNativeScope()) {
+    pushScopeState();
+    return;
+  }
   if (!_scopeRaf) {
     _scopeRaf = requestAnimationFrame(() => {
       _scopeRaf = 0;
@@ -540,8 +560,8 @@ function flushAllThrottles() {
   ['freq','duty','f3','d3','ph','n3'].forEach(flushThrottle);
 }
 
-// ─── Телефон: localhost прокси (p5) ───
-const HTML_VER = 'p5';
+// ─── Телефон: localhost прокси + нативный scope (p6) ───
+const HTML_VER = 'p6';
 let _picoReady = false;
 let _connMode = 'wifi';
 let _pollTimer = null;
@@ -566,6 +586,9 @@ function pollBlocked() {
 }
 
 const HEAVY_CMD_MS = 120;
+// Лёгкие ползунки (freq/duty/phase) тоже троттлим, чтобы не открывать десятки
+// HTTP-соединений в секунду при перетаскивании.
+const LIGHT_CMD_MS = 60;
 
 function isWifi() {
   return isPhone() && _connMode !== 'usb';
@@ -610,7 +633,7 @@ function onFreqSlider(v) {
   S.freq = parseInt(v);
   document.getElementById('sv-freq').textContent = S.freq;
   if (!sliderActive) buildDigits(S.freq, 'Hz');
-  sendRaw('F1:'+S.freq+'\n');
+  throttleSend('freq', 'F1:'+S.freq+'\n', LIGHT_CMD_MS);
   schedScopeSlider();
 }
 function onDutySlider(v) {
@@ -618,7 +641,7 @@ function onDutySlider(v) {
   document.getElementById('sv-duty').textContent = S.duty;
   document.getElementById('duty-top-val').textContent = S.duty;
   if (!sliderActive) buildDigits(S.duty, '%');
-  sendRaw('D1:'+S.duty+'\n');
+  throttleSend('duty', 'D1:'+S.duty+'\n', LIGHT_CMD_MS);
   schedScopeSlider();
 }
 function onF3Slider(v) {
@@ -645,7 +668,7 @@ function onD3Slider(v) {
 function onPhSlider(v) {
   S.ph = parseInt(v);
   document.getElementById('sv-ph').textContent = S.ph;
-  sendRaw('P3:'+S.ph+'\n');
+  throttleSend('ph', 'P3:'+S.ph+'\n', LIGHT_CMD_MS);
   schedScopeSlider();
 }
 function onN3Slider(v) {
@@ -945,7 +968,7 @@ function initGesture() {
         S.ph = ((phStartVal + phDelta) % 1000 + 1000) % 1000;
         document.getElementById('sl-ph').value = S.ph;
         document.getElementById('sv-ph').textContent = S.ph;
-        sendRaw('P3:'+S.ph+'\n');
+        throttleSend('ph', 'P3:'+S.ph+'\n', LIGHT_CMD_MS);
         schedScopeSlider();
       }
     }
@@ -954,6 +977,7 @@ function initGesture() {
   wrap.addEventListener('touchend', e => {
     if (e.touches.length === 0) {
       if (phGesture) {
+        flushThrottle('ph');
         sendRaw('P3:'+S.ph+'\n');
         phGesture = false;
         setTimeout(() => { uiGestureActive = false; }, 150);
@@ -1318,6 +1342,7 @@ window.addEventListener('load', () => {
     _connMode = readConnMode();
     const sub = document.getElementById('conn-sub');
     if (sub && !connected) sub.textContent = HTML_VER;
+    if (useNativeScope()) document.body.classList.add('native-scope');
   }
   if (useProxy() && !_pollTimer) {
     _pollTimer = setInterval(pollStatus, 2000);
@@ -1326,11 +1351,17 @@ window.addEventListener('load', () => {
   updateSum();
   initGesture();
 
-  const ro = new ResizeObserver(() => schedScope());
-  ro.observe(document.getElementById('scope-wrap'));
-  drawScope();
-  setTimeout(() => drawScope(), 300);
-  setTimeout(() => drawScope(), 800);
+  if (useNativeScope()) {
+    pushScopeState();
+    setTimeout(pushScopeState, 300);
+    setTimeout(pushScopeState, 800);
+  } else {
+    const ro = new ResizeObserver(() => schedScope());
+    ro.observe(document.getElementById('scope-wrap'));
+    drawScope();
+    setTimeout(() => drawScope(), 300);
+    setTimeout(() => drawScope(), 800);
+  }
 });
 </script>
 </body>
