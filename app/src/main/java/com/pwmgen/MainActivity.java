@@ -29,8 +29,10 @@ import com.hoho.android.usbserial.driver.UsbSerialProber;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
-import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -47,7 +49,8 @@ public class MainActivity extends Activity {
     private static final String KEY_IP = "pico_ip";
     private static final String KEY_MODE = "conn_mode";
     private static final int BAUD_RATE = 115200;
-    private static final int WIFI_PORT = 8888;
+    private static final int WIFI_UDP_PORT = 8889;
+    private static final int STATUS_TIMEOUT_MS = 5000;
     private static final String DEFAULT_IP = "192.168.4.1";
 
     private static final int MAX_WRITE_FAILS = 4;
@@ -62,9 +65,10 @@ public class MainActivity extends Activity {
     private volatile boolean usbReading = false;
     private final StringBuilder usbReadBuf = new StringBuilder();
 
-    private Socket wifiSocket;
-    private OutputStream wifiOut;
+    private DatagramSocket wifiUdp;
+    private InetAddress wifiAddr;
     private volatile boolean wifiReading = false;
+    private volatile long lastStatusMs = 0;
     private String wifiHost = DEFAULT_IP;
     private String connMode = "wifi";
 
@@ -246,7 +250,10 @@ public class MainActivity extends Activity {
     }
 
     private boolean isTransportUp() {
-        if ("wifi".equals(connMode)) return wifiReading && wifiSocket != null;
+        if ("wifi".equals(connMode)) {
+            if (!wifiReading || wifiUdp == null) return false;
+            return System.currentTimeMillis() - lastStatusMs < STATUS_TIMEOUT_MS;
+        }
         return usbReading && serialPort != null;
     }
 
@@ -270,6 +277,11 @@ public class MainActivity extends Activity {
         synchronized (rxLock) {
             rxLines.add(line);
             if (rxLines.size() > 500) rxLines.remove(0);
+        }
+        if (line.startsWith("{")) {
+            lastStatusMs = System.currentTimeMillis();
+            final String payload = line;
+            mainHandler.post(() -> notifyJs("data:" + payload));
         }
     }
 
@@ -420,19 +432,21 @@ public class MainActivity extends Activity {
     private void connectWifi(String host) {
         try {
             disconnectWifiQuiet();
-            Socket sock = new Socket();
-            sock.connect(new InetSocketAddress(host, WIFI_PORT), 8000);
-            sock.setTcpNoDelay(true);
-            wifiSocket = sock;
-            wifiOut = sock.getOutputStream();
-            wifiReading = true;
+            DatagramSocket sock = new DatagramSocket(null);
+            sock.setReuseAddress(true);
+            sock.bind(new InetSocketAddress(0));
+            sock.setSoTimeout(500);
+            wifiUdp = sock;
+            wifiAddr = InetAddress.getByName(host);
             wifiHost = host;
             connMode = "wifi";
             savePrefs();
             clearRx();
+            lastStatusMs = System.currentTimeMillis();
             startWifiRead();
+            sendWifiLine("GET\n");
             onLinkUp();
-            mainHandler.post(() -> Toast.makeText(this, "WiFi: " + host, Toast.LENGTH_SHORT).show());
+            mainHandler.post(() -> Toast.makeText(this, "WiFi UDP: " + host, Toast.LENGTH_SHORT).show());
         } catch (Exception e) {
             mainHandler.post(() -> {
                 Toast.makeText(this, "WiFi: " + e.getMessage(), Toast.LENGTH_LONG).show();
@@ -442,20 +456,18 @@ public class MainActivity extends Activity {
     }
 
     private void sendWifiLine(String line) {
-        OutputStream out = wifiOut;
-        if (out == null) return;
-        synchronized (sendLock) {
-            try {
-                out.write(line.getBytes(StandardCharsets.UTF_8));
-                out.flush();
-                writeFailCount = 0;
-            } catch (IOException e) {
-                // Одиночный сбой записи не рвём связь — рвём только при серии подряд.
-                if (++writeFailCount >= MAX_WRITE_FAILS) {
-                    wifiReading = false;
-                    onLinkDown();
-                    disconnectWifiQuiet();
-                }
+        DatagramSocket sock = wifiUdp;
+        InetAddress addr = wifiAddr;
+        if (sock == null || addr == null) return;
+        try {
+            byte[] data = line.getBytes(StandardCharsets.UTF_8);
+            sock.send(new DatagramPacket(data, data.length, addr, WIFI_UDP_PORT));
+            writeFailCount = 0;
+        } catch (IOException e) {
+            if (++writeFailCount >= MAX_WRITE_FAILS) {
+                wifiReading = false;
+                onLinkDown();
+                disconnectWifiQuiet();
             }
         }
     }
@@ -463,10 +475,11 @@ public class MainActivity extends Activity {
     private void disconnectWifiQuiet() {
         wifiReading = false;
         try {
-            if (wifiSocket != null) wifiSocket.close();
+            if (wifiUdp != null) wifiUdp.close();
         } catch (Exception ignored) {}
-        wifiSocket = null;
-        wifiOut = null;
+        wifiUdp = null;
+        wifiAddr = null;
+        lastStatusMs = 0;
     }
 
     private void disconnectWifi() {
@@ -475,16 +488,19 @@ public class MainActivity extends Activity {
     }
 
     private void startWifiRead() {
+        wifiReading = true;
         final StringBuilder wifiBuf = new StringBuilder();
         new Thread(() -> {
-            byte[] buf = new byte[512];
-            while (wifiReading && wifiSocket != null) {
+            byte[] buf = new byte[1024];
+            while (wifiReading && wifiUdp != null) {
                 try {
-                    InputStream in = wifiSocket.getInputStream();
-                    int n = in.read(buf);
-                    if (n > 0) {
-                        processIncoming(new String(buf, 0, n, StandardCharsets.UTF_8), wifiBuf);
-                    } else {
+                    DatagramPacket pkt = new DatagramPacket(buf, buf.length);
+                    wifiUdp.receive(pkt);
+                    if (pkt.getLength() > 0) {
+                        processIncoming(new String(buf, 0, pkt.getLength(), StandardCharsets.UTF_8), wifiBuf);
+                    }
+                } catch (java.net.SocketTimeoutException ignored) {
+                    if (System.currentTimeMillis() - lastStatusMs > STATUS_TIMEOUT_MS) {
                         break;
                     }
                 } catch (Exception e) {
@@ -494,8 +510,9 @@ public class MainActivity extends Activity {
             if (wifiReading) {
                 wifiReading = false;
                 onLinkDown();
+                mainHandler.post(() -> new Thread(() -> connectWifi(wifiHost)).start());
             }
-        }, "pwmgen-wifi-rx").start();
+        }, "pwmgen-wifi-udp").start();
     }
 
     private void processIncoming(String chunk, StringBuilder buf) {
