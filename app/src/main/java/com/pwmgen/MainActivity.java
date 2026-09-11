@@ -8,6 +8,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
+import android.content.pm.ActivityInfo;
 import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbDeviceConnection;
 import android.hardware.usb.UsbManager;
@@ -91,6 +92,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         setContentView(R.layout.activity_main);
         mainHandler = new Handler(Looper.getMainLooper());
@@ -223,7 +225,7 @@ public class MainActivity extends Activity {
     }
 
     private void showConnMenu() {
-        String[] items = {"USB кабель (OTG)", "WiFi (PWMGen AP)"};
+        String[] items = {"USB OTG (2040 Zero)", "WiFi (Pico W AP)"};
         new AlertDialog.Builder(this)
             .setTitle("Подключение")
             .setItems(items, (d, w) -> {
@@ -248,7 +250,7 @@ public class MainActivity extends Activity {
         input.setText(wifiHost);
         input.setHint(DEFAULT_IP);
         new AlertDialog.Builder(this)
-            .setTitle("IP адрес Pico")
+            .setTitle("IP адрес Pico W")
             .setView(input)
             .setPositiveButton("Подключить", (d, w) -> {
                 String ip = input.getText().toString().trim();
@@ -366,7 +368,8 @@ public class MainActivity extends Activity {
         UsbDevice device = driver.getDevice();
         if (!usbManager.hasPermission(device)) {
             PendingIntent pi = PendingIntent.getBroadcast(this, 0,
-                new Intent(ACTION_USB_PERMISSION), PendingIntent.FLAG_IMMUTABLE);
+                new Intent(ACTION_USB_PERMISSION).setPackage(getPackageName()),
+                PendingIntent.FLAG_IMMUTABLE);
             usbManager.requestPermission(device, pi);
             return "NO_PERMISSION";
         }
@@ -382,6 +385,7 @@ public class MainActivity extends Activity {
             clearRx();
             startUsbRead();
             onLinkUp();
+            writeLine("GET\n");
             mainHandler.post(() -> Toast.makeText(this, "USB подключён", Toast.LENGTH_SHORT).show());
             return "OK";
         } catch (IOException e) {
@@ -580,7 +584,13 @@ public class MainActivity extends Activity {
         IntentFilter f = new IntentFilter();
         f.addAction(ACTION_USB_PERMISSION);
         f.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED);
-        registerReceiver(usbReceiver, f);
+        // Android 14+: фильтр содержит собственное событие (не системное),
+        // поэтому флаг обязателен — иначе SecurityException при старте.
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(usbReceiver, f, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(usbReceiver, f);
+        }
     }
 
     @Override

@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>PWM GEN</title>
-<!-- HTML_VER: p7 -->
+<!-- HTML_VER: p6 -->
 <style>
 /* без @import — на Wi‑Fi Pico интернета нет, fonts.googleapis блокирует загрузку */
 
@@ -331,17 +331,6 @@ input[type=range].cyan::-webkit-slider-thumb { background: var(--cyan); box-shad
         <span class="sl-val" id="sv-n3" style="color:var(--dim)">5</span>
         <span class="sl-unit">шт</span>
       </div>
-      <!-- Пропуск периодов CH3 (H3) -->
-      <div class="step-row" id="row-h3-cap">
-        <span class="step-label" id="cap-h3" style="width:auto;line-height:14px;color:var(--dim)">Пропуск периодов</span>
-      </div>
-      <div class="slider-row" onclick="setCh3pActive('h3')" style="cursor:pointer">
-        <span class="sl-name" id="lbl-h3" style="color:var(--dim)">SKP</span>
-        <input type="range" id="sl-h3" min="0" max="20" step="1" value="0" class="cyan"
-               oninput="onH3Slider(this.value)" style="pointer-events:none; opacity:0.4">
-        <span class="sl-val" id="sv-h3" style="color:var(--dim);font-size:10px;min-width:84px">каждый период</span>
-        <span class="sl-unit"></span>
-      </div>
     </div>
 
   </div>
@@ -362,8 +351,8 @@ input[type=range].cyan::-webkit-slider-thumb { background: var(--cyan); box-shad
 
 <script>
 // ─── State ───
-const S = { freq:20000, duty:50, f3:1000000, fc:1000, d3:50, n3:5, ph:0, h3:0 };
-const steps = { freq:10, duty:1, f3:100000, fc:10, d3:1, ph:1, n3:1, h3:1 };
+const S = { freq:20000, duty:50, f3:1000000, fc:1000, d3:50, n3:5, ph:0 };
+const steps = { freq:10, duty:1, f3:100000, fc:10, d3:1, ph:1, n3:1 };
 let currentMode = 'ch12';
 let activeDigitIdx = -1;
 let connected = false;
@@ -554,8 +543,7 @@ function schedScope() {
 }
 
 const SLIDER_CMD = {
-  'sl-freq': 'F1', 'sl-duty': 'D1', 'sl-f3': 'F3', 'sl-d3': 'D3', 'sl-ph': 'P3', 'sl-n3': 'N3',
-  'sl-h3': 'H3'
+  'sl-freq': 'F1', 'sl-duty': 'D1', 'sl-f3': 'F3', 'sl-d3': 'D3', 'sl-ph': 'P3', 'sl-n3': 'N3'
 };
 
 let _sliderScopeT = null;
@@ -568,11 +556,11 @@ function schedScopeSlider() {
 }
 
 function flushAllThrottles() {
-  ['freq','duty','f3','d3','ph','n3','h3'].forEach(flushThrottle);
+  ['freq','duty','f3','d3','ph','n3'].forEach(flushThrottle);
 }
 
 // ─── Телефон: localhost прокси + нативный scope (p6) ───
-const HTML_VER = 'p7';
+const HTML_VER = 'p6';
 let _picoReady = false;
 let _connMode = 'wifi';
 let _pollTimer = null;
@@ -686,15 +674,6 @@ function onN3Slider(v) {
   throttleSend('n3', 'N3:'+S.n3+'\n', HEAVY_CMD_MS);
   schedScopeSlider();
 }
-// Пропуск периодов CH3: 0 — пачка на каждом периоде, N — через N периодов
-function fmtH3(v) {
-  return v > 0 ? 'через '+v : 'каждый период';
-}
-function onH3Slider(v) {
-  S.h3 = parseInt(v);
-  document.getElementById('sv-h3').textContent = fmtH3(S.h3);
-  throttleSend('h3', 'H3:'+S.h3+'\n', HEAVY_CMD_MS);
-}
 
 let sliderActive = false;
 let sliderDebounce = null;
@@ -709,9 +688,8 @@ document.addEventListener('touchstart', e => {
 document.addEventListener('touchend', e => {
   if (e.target && e.target.type === 'range') {
     const id = e.target.id;
-    ['freq','duty','f3','d3','ph','n3','h3'].forEach(flushThrottle);
+    ['freq','duty','f3','d3','ph','n3'].forEach(flushThrottle);
     if (id === 'sl-n3') sendRaw('N3:'+S.n3+'\n');
-    else if (id === 'sl-h3') sendRaw('H3:'+S.h3+'\n');
     else if (id === 'sl-f3') {
       if (ch3SubMode === 1) sendRaw('FC:'+S.fc+'\n');
       else sendRaw('F3:'+S.f3+'\n');
@@ -719,12 +697,10 @@ document.addEventListener('touchend', e => {
     setTimeout(() => {
       sliderActive = false;
       uiGestureActive = false;
-      updateSum();
-      schedScope();
-    }, 150);
+    }, 1500);
   }
 }, {passive:true});
-['sl-freq','sl-duty','sl-f3','sl-d3','sl-ph','sl-n3','sl-h3'].forEach(id => {
+['sl-freq','sl-duty','sl-f3','sl-d3','sl-ph','sl-n3'].forEach(id => {
   const el = document.getElementById(id);
   if (!el) return;
   el.addEventListener('pointerdown', () => { sliderActive = true; uiGestureActive = true; });
@@ -832,13 +808,13 @@ function onCh3Tap() {
   ch3LastTap = now;
 }
 
-let x2IgnoreUntil = 0;
 function onCh3pTap() {
   const now = Date.now();
   if (now - ch3pLastTap < 500) {
     flushAllThrottles();
     x2Active = !x2Active;
-    x2IgnoreUntil = Date.now() + 1500;
+    sliderActive = true;
+    setTimeout(() => { sliderActive = false; }, 1500);
     sendRaw('X2:'+(x2Active?1:0)+'\n');
     const btn = document.getElementById('btn-ch3');
     btn.style.borderColor = x2Active ? 'var(--yellow)' : '';
@@ -882,12 +858,6 @@ function setCh3pActive(param) {
   document.getElementById('sv-n3').style.color = param === 'n3' ? 'var(--cyan)' : 'var(--dim)';
   document.getElementById('sl-n3').style.pointerEvents = param === 'n3' ? 'auto' : 'none';
   document.getElementById('sl-n3').style.opacity = param === 'n3' ? '1' : '0.4';
-  // SKP — пропуск периодов
-  document.getElementById('lbl-h3').style.color = param === 'h3' ? 'var(--cyan)' : 'var(--dim)';
-  document.getElementById('cap-h3').style.color = param === 'h3' ? 'var(--cyan)' : 'var(--dim)';
-  document.getElementById('sv-h3').style.color = param === 'h3' ? 'var(--cyan)' : 'var(--dim)';
-  document.getElementById('sl-h3').style.pointerEvents = param === 'h3' ? 'auto' : 'none';
-  document.getElementById('sl-h3').style.opacity = param === 'h3' ? '1' : '0.4';
 }
 
 function snapToStep(v, step) { return Math.round(v / step) * step; }
@@ -1230,9 +1200,33 @@ function drawScopeInner() {
   });
 }
 
-// ─── Синхронизация с Pico ───
-function applyStatusToggles(d) {
-  if (pollBlocked()) return;
+// ─── Синхронизация с Pico (как ПОБЕSДА — простая логика) ───
+
+function applyStatus(d) {
+  if (!d || d.f1 === undefined) return;
+  if (!sliderActive) {
+    S.freq=d.f1; S.duty=d.d1; S.f3=d.f3; S.d3=d.d3; S.n3=d.n3; S.ph=d.p3;
+    if (d.fc !== undefined) S.fc = d.fc;
+    const f3val = ch3SubMode === 1 ? S.fc : S.f3;
+    document.getElementById('sl-freq').value = S.freq;
+    document.getElementById('sl-duty').value = S.duty;
+    document.getElementById('sl-f3').value = f3val;
+    document.getElementById('sl-d3').value = S.d3;
+    document.getElementById('sl-ph').value = S.ph;
+    document.getElementById('sl-n3').value = S.n3;
+    document.getElementById('sv-freq').textContent = S.freq;
+    document.getElementById('sv-duty').textContent = S.duty;
+    document.getElementById('sv-f3').textContent = fmtHz(f3val);
+    document.getElementById('sv-d3').textContent = S.d3;
+    document.getElementById('sv-ph').textContent = S.ph;
+    document.getElementById('sv-n3').textContent = S.n3;
+    document.getElementById('duty-top-val').textContent =
+      currentMode === 'd3' ? S.d3 : S.duty;
+    const units = {ch12:'Hz', duty:'%', ch3:'Hz', d3:'%', ch3p:'%'};
+    const vals = {ch12:S.freq, duty:S.duty, ch3:f3val, d3:S.d3, ch3p:S.ph};
+    buildDigits(vals[currentMode] || 0, units[currentMode] || '');
+    updateSum(); drawScope();
+  }
   if (d.lk !== undefined) {
     ch3Linked = d.lk === 1;
     const b12 = document.getElementById('btn-ch12');
@@ -1240,7 +1234,7 @@ function applyStatusToggles(d) {
     b12.style.boxShadow = !ch3Linked ? '0 0 10px var(--orange)' : '';
     document.getElementById('ch12-sub').textContent = !ch3Linked ? '⊥' : '1/2';
   }
-  if (d.x2 !== undefined && d.x2 !== (x2Active ? 1 : 0) && Date.now() > x2IgnoreUntil) {
+  if (d.x2 !== undefined && d.x2 !== (x2Active?1:0)) {
     x2Active = d.x2 === 1;
     const btn = document.getElementById('btn-ch3');
     btn.style.borderColor = x2Active ? 'var(--yellow)' : '';
@@ -1255,40 +1249,7 @@ function applyStatusToggles(d) {
     document.getElementById('btn-inv').classList.toggle('active', invActive);
     document.getElementById('inv-sub').textContent = invActive ? 'ON' : 'OFF';
   }
-}
-
-function applyStatusSliders(d) {
-  if (d.f1 === undefined) return;
-  if (pollBlocked()) return;
-  S.freq = d.f1; S.duty = d.d1; S.f3 = d.f3; S.d3 = d.d3; S.n3 = d.n3; S.ph = d.p3;
-  if (d.fc !== undefined) S.fc = d.fc;
-  const f3val = ch3SubMode === 1 ? S.fc : S.f3;
-  document.getElementById('sl-freq').value = S.freq;
-  document.getElementById('sl-duty').value = S.duty;
-  document.getElementById('sl-f3').value = f3val;
-  document.getElementById('sl-d3').value = S.d3;
-  document.getElementById('sl-ph').value = S.ph;
-  document.getElementById('sl-n3').value = S.n3;
-  if (d.h3 !== undefined) {
-    S.h3 = d.h3;
-    document.getElementById('sl-h3').value = S.h3;
-    document.getElementById('sv-h3').textContent = fmtH3(S.h3);
-  }
-  document.getElementById('sv-freq').textContent = S.freq;
-  document.getElementById('sv-duty').textContent = S.duty;
-  document.getElementById('sv-f3').textContent = fmtHz(f3val);
-  document.getElementById('sv-d3').textContent = S.d3;
-  document.getElementById('sv-ph').textContent = S.ph;
-  document.getElementById('sv-n3').textContent = S.n3;
-  document.getElementById('duty-top-val').textContent =
-    currentMode === 'd3' ? S.d3 : S.duty;
-  const units = {ch12:'Hz', duty:'%', ch3:'Hz', d3:'%', ch3p:'%'};
-  const vals = {ch12:S.freq, duty:S.duty, ch3:f3val, d3:S.d3, ch3p:S.ph};
-  buildDigits(vals[currentMode] || 0, units[currentMode] || '');
-  updateSum();
-  schedScope();
   _picoReady = true;
-  document.getElementById('stxt').textContent = 'ONLINE';
 }
 
 // ─── USB / WiFi ───
@@ -1299,7 +1260,7 @@ window.onUsbEvent = function(event) {
     _picoReady = useProxy();
     _connMode = readConnMode();
     document.getElementById('sdot').classList.add('on');
-    document.getElementById('stxt').textContent = useProxy() ? 'ONLINE' : (isWifi() ? 'SYNC…' : 'ONLINE');
+    document.getElementById('stxt').textContent = 'ONLINE';
     document.getElementById('conn-icon').textContent = isWifi() ? 'WiFi' : 'USB';
     document.getElementById('conn-sub').textContent = isWifi() ? HTML_VER : 'USB';
     if (window._si) clearInterval(window._si);
@@ -1319,26 +1280,21 @@ window.onUsbEvent = function(event) {
     document.getElementById('conn-sub').textContent = 'OFF';
     if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
   } else if (event.startsWith('data:')) {
-    if (pollBlocked()) return;
     try {
       const d = JSON.parse(event.substring(5).trim());
-      if (d.f1 !== undefined) applyStatusSliders(d);
-      applyStatusToggles(d);
+      applyStatus(d);
     } catch(e) {}
   }
 };
 
 async function pollStatus() {
-  if (!useProxy() || pollBlocked()) return;
+  if (!useProxy()) return;
+  if (sliderActive) return;
   try {
     const r = await fetch('/status');
-    if (pollBlocked()) return;
     const d = await r.json();
-    if (d.f1 === undefined) return;
-    if (!connected) window.onUsbEvent('connected');
-    if (pollBlocked()) return;
-    applyStatusSliders(d);
-    applyStatusToggles(d);
+    if (!connected && d.f1 !== undefined) window.onUsbEvent('connected');
+    applyStatus(d);
   } catch (e) {}
 }
 

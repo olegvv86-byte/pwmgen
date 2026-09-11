@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <usb-device vendor-id="0x2E8A" product-id="0x101F" />
-    <usb-device vendor-id="0x2E8A" />
-    <usb-device class="2" />
-</resources>

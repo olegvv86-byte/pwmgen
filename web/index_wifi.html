@@ -4,9 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>PWM GEN</title>
-<!-- HTML_VER: p7 -->
 <style>
-/* без @import — на Wi‑Fi Pico интернета нет, fonts.googleapis блокирует загрузку */
+@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700&display=swap');
 
 :root {
   --bg:      #040408;
@@ -80,7 +79,7 @@ body {
 
 /* ═══ SCOPE ═══ */
 .scope-wrap { flex: 1; position: relative; overflow: hidden; }
-canvas#scope { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 1; pointer-events: none; }
+canvas#scope { position: absolute; inset: 0; width: 100%; height: 100%; }
 
 /* ═══ FREQ/DUTY BAR (top overlay) ═══ */
 .top-bar {
@@ -201,6 +200,29 @@ input[type=range].cyan::-webkit-slider-thumb { background: var(--cyan); box-shad
 }
 .status-dot { width: 6px; height: 6px; border-radius: 50%; background: #ff3333; display: inline-block; margin-right: 4px; }
 .status-dot.on { background: var(--green); box-shadow: 0 0 4px var(--green); }
+
+.log-wrap {
+  position: fixed; bottom: 0; left: 44px; right: 0;
+  height: 0; overflow: hidden; transition: height 0.3s;
+  background: #040408ee; border-top: 1px solid var(--border); z-index: 50;
+}
+.log-wrap.open { height: 200px; }
+.log-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 2px 8px; background: #060810; border-bottom: 1px solid var(--border);
+}
+.log-header span { font-size: 9px; color: var(--dim); }
+.log-header button {
+  background: none; border: 1px solid var(--border); border-radius: 3px;
+  color: var(--dim); font-size: 8px; padding: 1px 6px; cursor: pointer;
+  font-family: 'Share Tech Mono', monospace;
+}
+.log-header button:hover { color: var(--yellow); border-color: var(--yellow); }
+#log-content {
+  height: calc(100% - 22px); overflow-y: auto; padding: 2px 8px;
+  font-size: 9px; color: var(--green); line-height: 1.4;
+  white-space: pre-wrap; word-break: break-all; user-select: text; cursor: text;
+}
 </style>
 </head>
 <body>
@@ -235,6 +257,12 @@ input[type=range].cyan::-webkit-slider-thumb { background: var(--cyan); box-shad
   <div class="sb-btn" id="btn-zoom" onclick="toggleZoom()" title="CH3 на весь экран">
     <span style="font-size:14px">⛶</span><sub>CH3</sub>
   </div>
+  <div class="sb-sep"></div>
+  <div class="sb-btn" onclick="toggleLog()"><span style="font-size:10px">LOG</span><sub id="log-sub">OFF</sub></div>
+  <div class="sb-btn" onclick="doRun()" style="color:var(--green)"><span style="font-size:16px">▶</span><sub style="color:var(--green)">RUN</sub></div>
+  <div class="sb-btn" onclick="doStop()" style="color:#ff3333"><span style="font-size:16px">■</span><sub style="color:#ff3333">STOP</sub></div>
+  <div class="sb-btn" onclick="doUpload()" style="color:var(--cyan)"><span style="font-size:12px">📂</span><sub style="color:var(--cyan)">FILE</sub></div>
+  <input type="file" id="fw-file" accept=".py" style="display:none" onchange="onFwFile(event)">
   <div style="flex:1"></div>
   <div class="sb-btn" onclick="connectUSB()" oncontextmenu="showConnMenu(); return false;" ontouchstart="startLongPress(event)" ontouchend="cancelLongPress()" ontouchmove="cancelLongPress()" style="font-size:8px;">
     <span id="conn-icon">USB</span><sub id="conn-sub">OFF</sub>
@@ -331,17 +359,6 @@ input[type=range].cyan::-webkit-slider-thumb { background: var(--cyan); box-shad
         <span class="sl-val" id="sv-n3" style="color:var(--dim)">5</span>
         <span class="sl-unit">шт</span>
       </div>
-      <!-- Пропуск периодов CH3 (H3) -->
-      <div class="step-row" id="row-h3-cap">
-        <span class="step-label" id="cap-h3" style="width:auto;line-height:14px;color:var(--dim)">Пропуск периодов</span>
-      </div>
-      <div class="slider-row" onclick="setCh3pActive('h3')" style="cursor:pointer">
-        <span class="sl-name" id="lbl-h3" style="color:var(--dim)">SKP</span>
-        <input type="range" id="sl-h3" min="0" max="20" step="1" value="0" class="cyan"
-               oninput="onH3Slider(this.value)" style="pointer-events:none; opacity:0.4">
-        <span class="sl-val" id="sv-h3" style="color:var(--dim);font-size:10px;min-width:84px">каждый период</span>
-        <span class="sl-unit"></span>
-      </div>
     </div>
 
   </div>
@@ -362,8 +379,8 @@ input[type=range].cyan::-webkit-slider-thumb { background: var(--cyan); box-shad
 
 <script>
 // ─── State ───
-const S = { freq:20000, duty:50, f3:1000000, fc:1000, d3:50, n3:5, ph:0, h3:0 };
-const steps = { freq:10, duty:1, f3:100000, fc:10, d3:1, ph:1, n3:1, h3:1 };
+const S = { freq:20000, duty:50, f3:1000000, fc:1000, d3:50, n3:5, ph:0 };
+const steps = { freq:10, duty:1, f3:100000, fc:10, d3:1, ph:1, n3:1 };
 let currentMode = 'ch12';
 let activeDigitIdx = -1;
 let connected = false;
@@ -404,7 +421,7 @@ function selectMode(m) {
   }
 
   buildDigits(vals[m] || 0, units[m]);
-  if (isPhone()) schedScope(); else drawScope();
+  drawScope();
 }
 
 // ─── Top digits ───
@@ -443,20 +460,20 @@ function setCurVal(v) {
     S.freq = v;
     document.getElementById('sl-freq').value = v;
     document.getElementById('sv-freq').textContent = v;
-    throttleSend('freq', 'F1:'+v+'\n', LIGHT_CMD_MS);
+    sendRaw('F1:'+v+'\n');
   } else if (currentMode === 'duty') {
     S.duty = v;
     document.getElementById('sl-duty').value = v;
     document.getElementById('sv-duty').textContent = v;
     document.getElementById('duty-top-val').textContent = v;
-    throttleSend('duty', 'D1:'+v+'\n', LIGHT_CMD_MS);
+    sendRaw('D1:'+v+'\n');
   } else if (currentMode === 'ch3') {
     if (ch3SubMode === 1) {
       S.fc = v;
-      throttleSend('f3', 'FC:'+v+'\n', HEAVY_CMD_MS);
+      sendRaw('FC:'+v+'\n');
     } else {
       S.f3 = v;
-      throttleSend('f3', 'F3:'+v+'\n', HEAVY_CMD_MS);
+      sendRaw('F3:'+v+'\n');
     }
     document.getElementById('sl-f3').value = v;
     document.getElementById('sv-f3').textContent = fmtHz(v);
@@ -465,17 +482,17 @@ function setCurVal(v) {
     document.getElementById('sl-d3').value = v;
     document.getElementById('sv-d3').textContent = v;
     document.getElementById('duty-top-val').textContent = v;
-    throttleSend('d3', 'D3:'+v+'\n', HEAVY_CMD_MS);
+    sendRaw('D3:'+v+'\n');
   } else if (currentMode === 'ch3p') {
     S.ph = v;
     document.getElementById('sl-ph').value = v;
     document.getElementById('sv-ph').textContent = v;
-    throttleSend('ph', 'P3:'+v+'\n', LIGHT_CMD_MS);
+    sendRaw('P3:'+v+'\n');
   }
   const units = {ch12:'Hz', duty:'%', ch3:'Hz', d3:'%', ch3p:'%'};
   buildDigits(v, units[currentMode]);
   updateSum();
-  if (isPhone()) schedScope(); else drawScope();
+  drawScope();
 }
 
 function openDigitPopup(idx, len, unit) {
@@ -513,108 +530,12 @@ function digitChg(dir) {
   document.getElementById('dpval').textContent = newS[activeDigitIdx] || '0';
 }
 
-// ─── Отрисовка ───
-function useProxy() {
-  const h = location.hostname;
-  return h === '127.0.0.1' || h === 'localhost';
-}
-
-const SCOPE_DPR = (useProxy() || typeof AndroidUSB !== 'undefined')
-  ? 1
-  : Math.min(window.devicePixelRatio || 1, 1.5);
-let _cW = 0, _cH = 0, _scopeRaf = 0;
-let uiGestureActive = false;
-
-function useNativeScope() {
-  return typeof NativeScope !== 'undefined';
-}
-
-function pushScopeState() {
-  if (!useNativeScope()) return;
-  try {
-    NativeScope.update(JSON.stringify({
-      freq: S.freq, duty: S.duty, f3: S.f3, fc: S.fc, d3: S.d3, n3: S.n3, ph: S.ph,
-      lk: ch3Linked ? 1 : 0, x2: x2Active ? 1 : 0, zoom: zoomCH3 ? 1 : 0,
-      ts: timeScale, vs: viewStart
-    }));
-  } catch (e) {}
-}
-
-function schedScope() {
-  if (useNativeScope()) {
-    pushScopeState();
-    return;
-  }
-  if (!_scopeRaf) {
-    _scopeRaf = requestAnimationFrame(() => {
-      _scopeRaf = 0;
-      drawScope();
-    });
-  }
-}
-
-const SLIDER_CMD = {
-  'sl-freq': 'F1', 'sl-duty': 'D1', 'sl-f3': 'F3', 'sl-d3': 'D3', 'sl-ph': 'P3', 'sl-n3': 'N3',
-  'sl-h3': 'H3'
-};
-
-let _sliderScopeT = null;
-function schedScopeSlider() {
-  if (_sliderScopeT) return;
-  _sliderScopeT = setTimeout(() => {
-    _sliderScopeT = null;
-    schedScope();
-  }, 30);
-}
-
-function flushAllThrottles() {
-  ['freq','duty','f3','d3','ph','n3','h3'].forEach(flushThrottle);
-}
-
-// ─── Телефон: localhost прокси + нативный scope (p6) ───
-const HTML_VER = 'p7';
-let _picoReady = false;
-let _connMode = 'wifi';
-let _pollTimer = null;
-
-function isPhone() {
-  return useProxy() || typeof AndroidUSB !== 'undefined';
-}
-
-function readConnMode() {
-  if (!isPhone()) return 'usb';
-  try {
-    const m = String(AndroidUSB.getMode ? AndroidUSB.getMode() : 'wifi').toLowerCase();
-    if (m === 'usb' || m === 'serial' || m === 'otg') return 'usb';
-    return 'wifi';
-  } catch (e) {
-    return 'wifi';
-  }
-}
-
-function pollBlocked() {
-  return sliderActive || phGesture;
-}
-
-const HEAVY_CMD_MS = 40;
-const LIGHT_CMD_MS = 40;
-
-function isWifi() {
-  return isPhone() && _connMode !== 'usb';
-}
-
-function isUsbPhone() {
-  return isPhone() && _connMode === 'usb';
-}
-
+// ─── Throttle отправки команд ───
 const throttleLast = {};
 const throttleTimer = {};
 function throttleSend(key, cmd, interval) {
-  const ms = interval || HEAVY_CMD_MS;
   throttleLast[key] = cmd;
   if (!throttleTimer[key]) {
-    sendRaw(cmd);
-    throttleLast[key] = null;
     throttleTimer[key] = setInterval(() => {
       if (throttleLast[key]) {
         sendRaw(throttleLast[key]);
@@ -623,112 +544,71 @@ function throttleSend(key, cmd, interval) {
         clearInterval(throttleTimer[key]);
         throttleTimer[key] = null;
       }
-    }, ms);
-  }
-}
-
-function flushThrottle(key) {
-  if (throttleTimer[key]) {
-    clearInterval(throttleTimer[key]);
-    throttleTimer[key] = null;
-  }
-  if (throttleLast[key]) {
-    sendRaw(throttleLast[key]);
-    throttleLast[key] = null;
+    }, interval || 40);
   }
 }
 
 function onFreqSlider(v) {
   S.freq = parseInt(v);
   document.getElementById('sv-freq').textContent = S.freq;
-  if (!sliderActive) buildDigits(S.freq, 'Hz');
-  throttleSend('freq', 'F1:'+S.freq+'\n', LIGHT_CMD_MS);
-  schedScopeSlider();
+  buildDigits(S.freq, 'Hz');
+  throttleSend('freq', 'F1:'+S.freq+'\n', 40);
+  updateSum(); drawScope();
 }
 function onDutySlider(v) {
   S.duty = parseInt(v);
   document.getElementById('sv-duty').textContent = S.duty;
   document.getElementById('duty-top-val').textContent = S.duty;
-  if (!sliderActive) buildDigits(S.duty, '%');
-  throttleSend('duty', 'D1:'+S.duty+'\n', LIGHT_CMD_MS);
-  schedScopeSlider();
+  buildDigits(S.duty, '%');
+  throttleSend('duty', 'D1:'+S.duty+'\n', 40);
+  updateSum(); drawScope();
 }
 function onF3Slider(v) {
   v = parseInt(v);
   if (ch3SubMode === 1) {
     S.fc = v;
-    throttleSend('f3', 'FC:'+v+'\n', HEAVY_CMD_MS);
+    throttleSend('f3', 'FC:'+v+'\n', 40);
   } else {
     S.f3 = v;
-    throttleSend('f3', 'F3:'+v+'\n', HEAVY_CMD_MS);
+    throttleSend('f3', 'F3:'+v+'\n', 40);
   }
   document.getElementById('sv-f3').textContent = fmtHz(v);
-  if (!sliderActive) buildDigits(v, 'Hz');
-  schedScopeSlider();
+  buildDigits(v, 'Hz');
+  updateSum(); drawScope();
 }
 function onD3Slider(v) {
   S.d3 = parseInt(v);
   document.getElementById('sv-d3').textContent = S.d3;
   document.getElementById('duty-top-val').textContent = S.d3;
-  if (!sliderActive) buildDigits(S.d3, '%');
-  throttleSend('d3', 'D3:'+S.d3+'\n', HEAVY_CMD_MS);
-  schedScopeSlider();
+  buildDigits(S.d3, '%');
+  throttleSend('d3', 'D3:'+S.d3+'\n', 40);
+  updateSum(); drawScope();
 }
 function onPhSlider(v) {
   S.ph = parseInt(v);
   document.getElementById('sv-ph').textContent = S.ph;
-  throttleSend('ph', 'P3:'+S.ph+'\n', LIGHT_CMD_MS);
-  schedScopeSlider();
+  throttleSend('ph', 'P3:'+S.ph+'\n', 40);
+  updateSum(); drawScope();
 }
 function onN3Slider(v) {
   S.n3 = parseInt(v);
   document.getElementById('sv-n3').textContent = S.n3;
-  throttleSend('n3', 'N3:'+S.n3+'\n', HEAVY_CMD_MS);
-  schedScopeSlider();
-}
-// Пропуск периодов CH3: 0 — пачка на каждом периоде, N — через N периодов
-function fmtH3(v) {
-  return v > 0 ? 'через '+v : 'каждый период';
-}
-function onH3Slider(v) {
-  S.h3 = parseInt(v);
-  document.getElementById('sv-h3').textContent = fmtH3(S.h3);
-  throttleSend('h3', 'H3:'+S.h3+'\n', HEAVY_CMD_MS);
+  throttleSend('n3', 'N3:'+S.n3+'\n', 40);
+  updateSum(); drawScope();
 }
 
 let sliderActive = false;
 let sliderDebounce = null;
 
-// Глобальное отслеживание касания ползунков (как index_wifi.html)
+// Глобальное отслеживание касания ползунков
 document.addEventListener('touchstart', e => {
-  if (e.target && e.target.type === 'range') {
-    sliderActive = true;
-    uiGestureActive = true;
-  }
+  if (e.target && e.target.type === 'range') sliderActive = true;
 }, {passive:true});
 document.addEventListener('touchend', e => {
   if (e.target && e.target.type === 'range') {
-    const id = e.target.id;
-    ['freq','duty','f3','d3','ph','n3','h3'].forEach(flushThrottle);
-    if (id === 'sl-n3') sendRaw('N3:'+S.n3+'\n');
-    else if (id === 'sl-h3') sendRaw('H3:'+S.h3+'\n');
-    else if (id === 'sl-f3') {
-      if (ch3SubMode === 1) sendRaw('FC:'+S.fc+'\n');
-      else sendRaw('F3:'+S.f3+'\n');
-    } else if (id === 'sl-d3') sendRaw('D3:'+S.d3+'\n');
-    setTimeout(() => {
-      sliderActive = false;
-      uiGestureActive = false;
-      updateSum();
-      schedScope();
-    }, 150);
+    setTimeout(() => { sliderActive = false; }, 1500);
   }
 }, {passive:true});
-['sl-freq','sl-duty','sl-f3','sl-d3','sl-ph','sl-n3','sl-h3'].forEach(id => {
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.addEventListener('pointerdown', () => { sliderActive = true; uiGestureActive = true; });
-});
 
 function addSliderSend(id, cmdFn) {
   const el = document.getElementById(id);
@@ -753,7 +633,6 @@ let pllMode = 0;   // 0 = PHASE (двигать пачку), 1 = FREQ (меня�
 
 function toggleINV() {
   invActive = !invActive;
-  flushAllThrottles();
   sendRaw('IV:'+(invActive?1:0)+'\n');
   const btn = document.getElementById('btn-inv');
   btn.classList.toggle('active', invActive);
@@ -773,13 +652,13 @@ function updatePllLabel() {
 function onPllTap() {
   const now = Date.now();
   if (now - pllLastTap < 500) {
+    // Двойное нажатие — выбор режима ФАПЧ: CH3 (фаза) ⇄ Hz (частота)
     pllMode = pllMode === 0 ? 1 : 0;
-    flushAllThrottles();
     sendRaw('PM:'+pllMode+'\n');
     updatePllLabel();
   } else {
+    // Одиночное нажатие — включить/выключить ФАПЧ
     pllActive = !pllActive;
-    flushAllThrottles();
     sendRaw('PL:'+(pllActive?1:0)+'\n');
     updatePllLabel();
   }
@@ -817,7 +696,7 @@ function setCh3FreqMode(m) {
   buildDigits(m === 1 ? S.fc : S.f3, 'Hz');
 
   updateSum();
-  if (isPhone()) schedScope(); else drawScope();
+  drawScope();
 }
 
 function onCh3Tap() {
@@ -832,20 +711,19 @@ function onCh3Tap() {
   ch3LastTap = now;
 }
 
-let x2IgnoreUntil = 0;
 function onCh3pTap() {
   const now = Date.now();
   if (now - ch3pLastTap < 500) {
-    flushAllThrottles();
+    // Двойное нажатие — X2
     x2Active = !x2Active;
-    x2IgnoreUntil = Date.now() + 1500;
     sendRaw('X2:'+(x2Active?1:0)+'\n');
     const btn = document.getElementById('btn-ch3');
     btn.style.borderColor = x2Active ? 'var(--yellow)' : '';
     btn.style.boxShadow = x2Active ? '0 0 10px var(--yellow)' : '';
     document.getElementById('ch3-sub').textContent = x2Active ? '×2' : (ch3SubMode===1 ? '≈' : '3');
-    schedScope();
+    drawScope();
   } else {
+    // Одиночное — выбрать фазу
     selectMode('ch3p');
   }
   ch3pLastTap = now;
@@ -854,7 +732,7 @@ function onCh3pTap() {
 function onCh12Tap() {
   const now = Date.now();
   if (now - ch12LastTap < 500) {
-    flushAllThrottles();
+    // Двойное нажатие — привязка/отвязка CH3
     ch3Linked = !ch3Linked;
     sendRaw('LK:'+(ch3Linked?1:0)+'\n');
     const btn = document.getElementById('btn-ch12');
@@ -882,12 +760,6 @@ function setCh3pActive(param) {
   document.getElementById('sv-n3').style.color = param === 'n3' ? 'var(--cyan)' : 'var(--dim)';
   document.getElementById('sl-n3').style.pointerEvents = param === 'n3' ? 'auto' : 'none';
   document.getElementById('sl-n3').style.opacity = param === 'n3' ? '1' : '0.4';
-  // SKP — пропуск периодов
-  document.getElementById('lbl-h3').style.color = param === 'h3' ? 'var(--cyan)' : 'var(--dim)';
-  document.getElementById('cap-h3').style.color = param === 'h3' ? 'var(--cyan)' : 'var(--dim)';
-  document.getElementById('sv-h3').style.color = param === 'h3' ? 'var(--cyan)' : 'var(--dim)';
-  document.getElementById('sl-h3').style.pointerEvents = param === 'h3' ? 'auto' : 'none';
-  document.getElementById('sl-h3').style.opacity = param === 'h3' ? '1' : '0.4';
 }
 
 function snapToStep(v, step) { return Math.round(v / step) * step; }
@@ -932,7 +804,7 @@ function toggleZoom() {
   zoomCH3 = !zoomCH3;
   viewStart = 0;
   document.getElementById('btn-zoom').classList.toggle('active', zoomCH3);
-  schedScope();
+  drawScope();
 }
 
 function initGesture() {
@@ -961,7 +833,6 @@ function initGesture() {
         const h = wrap.offsetHeight;
         if (y > h * 0.67) {
           phGesture = true;
-          uiGestureActive = true;
           phStartX = e.touches[0].clientX;
           phStartVal = S.ph;
         }
@@ -981,13 +852,13 @@ function initGesture() {
       const worldCenter = pinchStartView + pinchCenterNorm;
       viewStart = worldCenter - pinchCenterNorm;
       timeScale = newScale;
-      schedScope();
+      drawScope();
     } else if (e.touches.length === 1) {
       if (isPanning && zoomCH3) {
         const dx = e.touches[0].clientX - panStartX;
         const W = wrap.offsetWidth;
         viewStart = panStartView - dx / W;
-        schedScope();
+        drawScope();
       } else if (phGesture) {
         const dx = e.touches[0].clientX - phStartX;
         const W = wrap.offsetWidth;
@@ -995,49 +866,26 @@ function initGesture() {
         S.ph = ((phStartVal + phDelta) % 1000 + 1000) % 1000;
         document.getElementById('sl-ph').value = S.ph;
         document.getElementById('sv-ph').textContent = S.ph;
-        throttleSend('ph', 'P3:'+S.ph+'\n', LIGHT_CMD_MS);
-        schedScopeSlider();
+        drawScope();
       }
     }
   }, {passive:true});
 
   wrap.addEventListener('touchend', e => {
     if (e.touches.length === 0) {
-      if (phGesture) {
-        flushThrottle('ph');
-        sendRaw('P3:'+S.ph+'\n');
-        phGesture = false;
-        setTimeout(() => { uiGestureActive = false; }, 150);
-      }
+      if (phGesture) { sendRaw('P3:'+S.ph+'\n'); phGesture = false; }
       isPanning = false;
     }
   });
 }
 
-let _scopeDrawing = false;
-
 function drawScope() {
-  if (_scopeDrawing) return;
-  _scopeDrawing = true;
-  try {
-  drawScopeInner();
-  } finally {
-  _scopeDrawing = false;
-  }
-}
-
-function drawScopeInner() {
   const canvas = document.getElementById('scope');
   const wrap = document.getElementById('scope-wrap');
-  const W = Math.round(wrap.offsetWidth * SCOPE_DPR);
-  const H = Math.round(wrap.offsetHeight * SCOPE_DPR);
-  if (W !== _cW || H !== _cH) {
-    _cW = W; _cH = H;
-    canvas.width = W; canvas.height = H;
-  }
+  const W = wrap.offsetWidth * devicePixelRatio;
+  const H = wrap.offsetHeight * devicePixelRatio;
+  canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext('2d');
-  const dpr = SCOPE_DPR;
-  const useShadow = !isPhone();
 
   // BG
   ctx.fillStyle = '#020208'; ctx.fillRect(0,0,W,H);
@@ -1058,14 +906,12 @@ function drawScopeInner() {
   function drawPWM(yTop, duty, color, cycles, phaseShift) {
     const cw = W / cycles;
     const phOff = (phaseShift || 0) * cw;
-    ctx.strokeStyle = color; ctx.lineWidth = 2 * dpr;
-    if (useShadow) { ctx.shadowColor = color; ctx.shadowBlur = 3 * dpr; }
+    ctx.strokeStyle = color; ctx.lineWidth = 2 * devicePixelRatio;
+    ctx.shadowColor = color; ctx.shadowBlur = 3 * devicePixelRatio;
     ctx.beginPath();
     const hiW = cw * duty / 100;
-    const maxI = Math.min(Math.ceil(cycles) + 1, 200);
-    for (let i = -1; i < maxI; i++) {
+    for (let i = -1; i < cycles + 1; i++) {
       const x0 = i * cw + phOff;
-      if (x0 > W) break;
       ctx.moveTo(x0, yTop + lo);
       ctx.lineTo(x0, yTop + hi);
       ctx.lineTo(x0 + hiW, yTop + hi);
@@ -1075,38 +921,41 @@ function drawScopeInner() {
     ctx.stroke(); ctx.shadowBlur = 0;
   }
 
-  // ─── Draw burst (CH3) — с ограничением числа операций для телефона ───
+  // ─── Draw burst (CH3) ───
+  // spacingPx — расстояние между началами пачек в пикселях.
+  //   В привязанном режиме = период CH1 (cw)
+  //   В свободном  режиме  = период FC
   function drawBurst(yTop, duty3, color, count, phase, cycles, spacingPx) {
     const cw = W / cycles;
     if (spacingPx === undefined) spacingPx = cw;
+    // Фаза задана в промилле от периода CH1 (в свободном режиме фазы по CH1 нет,
+    // но визуально удобно оставить смещение — мешать не должно)
     const phOff = phase / 1000 * cw;
 
-    ctx.strokeStyle = color; ctx.lineWidth = 2 * dpr;
-    if (useShadow) { ctx.shadowColor = color; ctx.shadowBlur = 3 * dpr; }
+    ctx.strokeStyle = color; ctx.lineWidth = 2 * devicePixelRatio;
+    ctx.shadowColor = color; ctx.shadowBlur = 3 * devicePixelRatio;
     ctx.beginPath();
 
     const freqRatio = S.f3 / S.freq;
     const impW = Math.max(2, cw / freqRatio);
     const hiW3 = impW * duty3 / 100;
-    const firstBurst = (phOff % spacingPx) - spacingPx;
-    const maxBursts = Math.min(100, Math.ceil((W + spacingPx * 2) / spacingPx));
-    const maxOps = 2000;
-    let ops = 0;
 
-    for (let i = 0; i < maxBursts && ops < maxOps; i++) {
+    // Начало первой пачки левее экрана
+    const firstBurst = (phOff % spacingPx) - spacingPx;
+
+    for (let i = 0; i * spacingPx + firstBurst < W + spacingPx * 2; i++) {
       const bStart = firstBurst + i * spacingPx;
-      if (bStart > W + spacingPx) break;
-      for (let j = 0; j < count && ops < maxOps; j++) {
+      for (let j = 0; j < count; j++) {
         const ix = bStart + j * impW;
         if (ix + hiW3 > 0 && ix < W) {
           ctx.moveTo(Math.max(0, ix), yTop + lo);
           ctx.lineTo(Math.max(0, ix), yTop + hi);
           ctx.lineTo(Math.min(W, ix + hiW3), yTop + hi);
           ctx.lineTo(Math.min(W, ix + hiW3), yTop + lo);
-          ops++;
         }
       }
     }
+    // Базовая линия
     ctx.moveTo(0, yTop + lo); ctx.lineTo(W, yTop + lo);
     ctx.stroke(); ctx.shadowBlur = 0;
   }
@@ -1137,10 +986,11 @@ function drawScopeInner() {
     const impW3 = cw3;
     const hiW3 = impW3 * S.d3 / 100;
 
-    ctx.strokeStyle = '#00aaff'; ctx.lineWidth = 2.5 * dpr;
-    if (useShadow) { ctx.shadowColor = '#00aaff'; ctx.shadowBlur = 5 * dpr; }
+    ctx.strokeStyle = '#00aaff'; ctx.lineWidth = 2.5 * devicePixelRatio;
+    ctx.shadowColor = '#00aaff'; ctx.shadowBlur = 5 * devicePixelRatio;
     ctx.beginPath();
 
+    // Рисуем пачки — каждый период CH1 содержит N3 импульсов CH3
     const ch1CycleW = W / Math.max(0.5, windowTime3 * S.freq);
     const offsetPx = viewStart * W;
 
@@ -1148,19 +998,15 @@ function drawScopeInner() {
       ctx.strokeStyle = color;
       ctx.beginPath();
       const extraPhOff = phaseOffset * ch1CycleW;
-      const zMaxI = Math.min(100, Math.ceil(cycles3 * (S.f3 / S.freq)) + 4);
-      const maxOps = 2000;
-      let ops = 0;
-      for (let i = -3; i < zMaxI && ops < maxOps; i++) {
+      for (let i = -3; i < cycles3 * (S.f3 / S.freq) + 4; i++) {
         const burstStart = i * ch1CycleW + phOff3 + extraPhOff - offsetPx;
-        for (let j = 0; j < S.n3 && ops < maxOps; j++) {
+        for (let j = 0; j < S.n3; j++) {
           const ix = burstStart + j * cw3;
           if (ix > -cw3 && ix < W + cw3) {
             ctx.moveTo(ix, lo2);
             ctx.lineTo(ix, hi2);
             ctx.lineTo(ix + hiW3, hi2);
             ctx.lineTo(ix + hiW3, lo2);
-            ops++;
           }
         }
       }
@@ -1168,23 +1014,21 @@ function drawScopeInner() {
       ctx.stroke();
     }
 
-    ctx.lineWidth = 2.5 * dpr;
-    if (useShadow) {
-      ctx.shadowBlur = 5 * dpr;
-      ctx.shadowColor = '#00aaff';
-    }
+    ctx.lineWidth = 2.5 * devicePixelRatio;
+    ctx.shadowBlur = 5 * devicePixelRatio;
+    ctx.shadowColor = '#00aaff';
     drawZoomBursts('#00aaff', 0);
     if (x2Active) {
-      if (useShadow) ctx.shadowColor = '#aa44ff';
+      ctx.shadowColor = '#aa44ff';
       drawZoomBursts('#aa44ff', 0.5);
     }
     ctx.shadowBlur = 0;
 
     // Метка
     ctx.fillStyle = '#00aaff';
-    ctx.font = (11*dpr)+'px Share Tech Mono';
+    ctx.font = (11*devicePixelRatio)+'px Share Tech Mono';
     ctx.fillText('CH3 | '+fmtHz(S.f3)+'Hz D:'+S.d3+'% ×'+S.n3+' φ'+S.ph+'%',
-      4*dpr, 14*dpr);
+      4*devicePixelRatio, 14*devicePixelRatio);
   } else {
     // Обычный режим — 3 канала
     drawPWM(0,      S.duty, '#00ff88', cycles, 0);
@@ -1202,6 +1046,7 @@ function drawScopeInner() {
     // CH3 пачки — если X2 то вторая пачка со сдвигом 50% периода CH1
     drawBurst(rowH*2, S.d3, '#00aaff', S.n3, S.ph, cycles, burstSpacing);
     if (x2Active) {
+      // Вторая пачка сдвинута на 50% периода CH1 (в фазу CH2)
       const ph2 = (S.ph + 500) % 1000;
       drawBurst(rowH*2, S.d3, '#aa44ff', S.n3, ph2, cycles, burstSpacing);
     }
@@ -1213,9 +1058,9 @@ function drawScopeInner() {
   const periodMs = 1000 / S.freq;
   const windowMs = periodMs * cycles;
   ctx.fillStyle = '#2a3550';
-  ctx.font = (8*dpr)+'px Share Tech Mono';
+  ctx.font = (8*devicePixelRatio)+'px Share Tech Mono';
   const tbTxt = windowMs >= 1 ? windowMs.toFixed(1)+'ms/div' : (windowMs*1000).toFixed(0)+'us/div';
-  ctx.fillText(tbTxt, W - 60*dpr, H - 4*dpr);
+  ctx.fillText(tbTxt, W - 60*devicePixelRatio, H - 4*devicePixelRatio);
   const ch3label = ch3Linked
     ? 'CH3 '+fmtHz(S.f3)+'Hz ×'+S.n3+' D:'+S.d3+'% φ'+S.ph+'%'
     : 'CH3⊥ '+fmtHz(S.f3)+'Hz ×'+S.n3+' D:'+S.d3+'% FC:'+fmtHz(S.fc)+'Hz';
@@ -1226,128 +1071,174 @@ function drawScopeInner() {
   ].forEach(([txt, col, y]) => {
     ctx.fillStyle = col+'99'; ctx.fillRect(0, y, W, 1);
     ctx.fillStyle = col;
-    ctx.fillText(txt, 4*dpr, y + 12*dpr);
+    ctx.fillText(txt, 4*devicePixelRatio, y + 12*devicePixelRatio);
   });
 }
 
-// ─── Синхронизация с Pico ───
-function applyStatusToggles(d) {
-  if (pollBlocked()) return;
-  if (d.lk !== undefined) {
-    ch3Linked = d.lk === 1;
-    const b12 = document.getElementById('btn-ch12');
-    b12.style.borderColor = !ch3Linked ? 'var(--orange)' : '';
-    b12.style.boxShadow = !ch3Linked ? '0 0 10px var(--orange)' : '';
-    document.getElementById('ch12-sub').textContent = !ch3Linked ? '⊥' : '1/2';
-  }
-  if (d.x2 !== undefined && d.x2 !== (x2Active ? 1 : 0) && Date.now() > x2IgnoreUntil) {
-    x2Active = d.x2 === 1;
-    const btn = document.getElementById('btn-ch3');
-    btn.style.borderColor = x2Active ? 'var(--yellow)' : '';
-    btn.style.boxShadow = x2Active ? '0 0 10px var(--yellow)' : '';
-    btn.querySelector('sub').textContent = x2Active ? '×2' : '3';
-  }
-  if (d.pl !== undefined) pllActive = d.pl === 1;
-  if (d.pm !== undefined) pllMode = d.pm;
-  if (d.pl !== undefined || d.pm !== undefined) updatePllLabel();
-  if (d.iv !== undefined) {
-    invActive = d.iv === 1;
-    document.getElementById('btn-inv').classList.toggle('active', invActive);
-    document.getElementById('inv-sub').textContent = invActive ? 'ON' : 'OFF';
-  }
-}
-
-function applyStatusSliders(d) {
-  if (d.f1 === undefined) return;
-  if (pollBlocked()) return;
-  S.freq = d.f1; S.duty = d.d1; S.f3 = d.f3; S.d3 = d.d3; S.n3 = d.n3; S.ph = d.p3;
-  if (d.fc !== undefined) S.fc = d.fc;
-  const f3val = ch3SubMode === 1 ? S.fc : S.f3;
-  document.getElementById('sl-freq').value = S.freq;
-  document.getElementById('sl-duty').value = S.duty;
-  document.getElementById('sl-f3').value = f3val;
-  document.getElementById('sl-d3').value = S.d3;
-  document.getElementById('sl-ph').value = S.ph;
-  document.getElementById('sl-n3').value = S.n3;
-  if (d.h3 !== undefined) {
-    S.h3 = d.h3;
-    document.getElementById('sl-h3').value = S.h3;
-    document.getElementById('sv-h3').textContent = fmtH3(S.h3);
-  }
-  document.getElementById('sv-freq').textContent = S.freq;
-  document.getElementById('sv-duty').textContent = S.duty;
-  document.getElementById('sv-f3').textContent = fmtHz(f3val);
-  document.getElementById('sv-d3').textContent = S.d3;
-  document.getElementById('sv-ph').textContent = S.ph;
-  document.getElementById('sv-n3').textContent = S.n3;
-  document.getElementById('duty-top-val').textContent =
-    currentMode === 'd3' ? S.d3 : S.duty;
-  const units = {ch12:'Hz', duty:'%', ch3:'Hz', d3:'%', ch3p:'%'};
-  const vals = {ch12:S.freq, duty:S.duty, ch3:f3val, d3:S.d3, ch3p:S.ph};
-  buildDigits(vals[currentMode] || 0, units[currentMode] || '');
-  updateSum();
-  schedScope();
-  _picoReady = true;
-  document.getElementById('stxt').textContent = 'ONLINE';
-}
-
-// ─── USB / WiFi ───
-
+// ─── USB ───
 window.onUsbEvent = function(event) {
   if (event === 'connected') {
     connected = true;
-    _picoReady = useProxy();
-    _connMode = readConnMode();
     document.getElementById('sdot').classList.add('on');
-    document.getElementById('stxt').textContent = useProxy() ? 'ONLINE' : (isWifi() ? 'SYNC…' : 'ONLINE');
-    document.getElementById('conn-icon').textContent = isWifi() ? 'WiFi' : 'USB';
-    document.getElementById('conn-sub').textContent = isWifi() ? HTML_VER : 'USB';
+    document.getElementById('stxt').textContent = 'ONLINE';
+    document.getElementById('conn-sub').textContent = 'ON';
+    const mode = 'usb';
+    document.getElementById('conn-icon').textContent = mode === 'wifi' ? 'WiFi' : 'USB';
+    setTimeout(() => sendRaw('GET\n'), 500);
+    setTimeout(() => sendRaw('GET\n'), 1500);
     if (window._si) clearInterval(window._si);
-    window._si = null;
-    if (useProxy()) {
-      if (!_pollTimer) _pollTimer = setInterval(pollStatus, 600);
-    } else if (isUsbPhone()) {
-      setTimeout(() => sendRaw('GET\n'), 500);
-      window._si = setInterval(() => { if (connected) sendRaw('GET\n'); }, 2000);
-    }
+    window._si = setInterval(() => { if (connected) sendRaw('GET\n'); }, 2000);
   } else if (event === 'disconnected') {
     connected = false;
     if (window._si) clearInterval(window._si);
-    window._si = null;
     document.getElementById('sdot').classList.remove('on');
     document.getElementById('stxt').textContent = 'OFFLINE';
     document.getElementById('conn-sub').textContent = 'OFF';
-    if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
   } else if (event.startsWith('data:')) {
-    if (pollBlocked()) return;
     try {
       const d = JSON.parse(event.substring(5).trim());
-      if (d.f1 !== undefined) applyStatusSliders(d);
-      applyStatusToggles(d);
+      if (d.f1 !== undefined) {
+        // Обновляем только если ползунок не активен
+        if (!sliderActive) {
+          S.freq=d.f1; S.duty=d.d1; S.f3=d.f3; S.d3=d.d3; S.n3=d.n3; S.ph=d.p3;
+          if (d.fc !== undefined) S.fc = d.fc;
+          document.getElementById('sl-freq').value = S.freq;
+          document.getElementById('sl-duty').value = S.duty;
+          // sl-f3 показывает F3 или FC в зависимости от текущего ch3SubMode
+          const f3val = ch3SubMode === 1 ? S.fc : S.f3;
+          document.getElementById('sl-f3').value = f3val;
+          document.getElementById('sl-d3').value = S.d3;
+          document.getElementById('sl-ph').value = S.ph;
+          document.getElementById('sl-n3').value = S.n3;
+          document.getElementById('sv-freq').textContent = S.freq;
+          document.getElementById('sv-duty').textContent = S.duty;
+          document.getElementById('sv-f3').textContent = fmtHz(f3val);
+          document.getElementById('sv-d3').textContent = S.d3;
+          document.getElementById('sv-ph').textContent = S.ph;
+          document.getElementById('sv-n3').textContent = S.n3;
+          document.getElementById('duty-top-val').textContent =
+            currentMode === 'd3' ? S.d3 : S.duty;
+          const units = {ch12:'Hz', duty:'%', ch3:'Hz', d3:'%', ch3p:'%'};
+          const vals = {ch12:S.freq, duty:S.duty, ch3:f3val, d3:S.d3, ch3p:S.ph};
+          buildDigits(vals[currentMode]||0, units[currentMode]||'');
+          updateSum(); drawScope();
+        }
+        if (d.lk !== undefined) {
+          ch3Linked = d.lk === 1;
+          const b12 = document.getElementById('btn-ch12');
+          b12.style.borderColor = !ch3Linked ? 'var(--orange)' : '';
+          b12.style.boxShadow = !ch3Linked ? '0 0 10px var(--orange)' : '';
+          document.getElementById('ch12-sub').textContent = !ch3Linked ? '⊥' : '1/2';
+        }
+        if (d.x2 !== undefined && d.x2 !== (x2Active?1:0)) {
+          x2Active = d.x2 === 1;
+          const btn = document.getElementById('btn-ch3');
+          btn.style.borderColor = x2Active ? 'var(--yellow)' : '';
+          btn.style.boxShadow = x2Active ? '0 0 10px var(--yellow)' : '';
+          btn.querySelector('sub').textContent = x2Active ? '×2' : '3';
+        }
+        if (d.pl !== undefined) {
+          pllActive = d.pl === 1;
+        }
+        if (d.pm !== undefined) {
+          pllMode = d.pm;
+        }
+        if (d.pl !== undefined || d.pm !== undefined) {
+          updatePllLabel();
+        }
+        if (d.iv !== undefined) {
+          invActive = d.iv === 1;
+          document.getElementById('btn-inv').classList.toggle('active', invActive);
+          document.getElementById('inv-sub').textContent = invActive ? 'ON' : 'OFF';
+        }
+      }
     } catch(e) {}
   }
 };
 
-async function pollStatus() {
-  if (!useProxy() || pollBlocked()) return;
-  try {
-    const r = await fetch('/status');
-    if (pollBlocked()) return;
-    const d = await r.json();
-    if (d.f1 === undefined) return;
-    if (!connected) window.onUsbEvent('connected');
-    if (pollBlocked()) return;
-    applyStatusSliders(d);
-    applyStatusToggles(d);
-  } catch (e) {}
-}
+
+// ─── WiFi через localhost прокси (без CORS) ───
+let _pollTimer = null;
 
 function connectUSB() {
-  if (typeof AndroidUSB !== 'undefined') {
-    const r = AndroidUSB.connect();
-    if (r === 'NO_DEVICE') document.getElementById('stxt').textContent = 'НЕТ УСТРОЙСТВА';
+  // Автоподключение — прокси уже работает
+  window.onUsbEvent('connected');
+  if (!_pollTimer) {
+    _pollTimer = setInterval(pollStatus, 600);
   }
 }
+
+function showConnMenu() { connectUSB(); }
+
+function sendRaw(s) {
+  const cmd = s.trim();
+  if (!cmd) return;
+  if (cmd === 'GET') return; // опрос через pollStatus
+  const parts = cmd.split(':');
+  if (parts.length === 2) {
+    fetch('/cmd/' + parts[0] + '/' + parts[1]).catch(()=>{});
+  }
+}
+
+async function pollStatus() {
+  try {
+    const r = await fetch('/status');
+    const d = await r.json();
+    const line = JSON.stringify(d);
+    addLog(line);
+    window.onUsbEvent('data:' + line);
+  } catch(e) {}
+}
+
+let _stopLast = 0;
+function doStop() {
+  const now = Date.now();
+  if (now - _stopLast < 500) {
+    clearLog();
+    addLog('[CLEAR]');
+  }
+  _stopLast = now;
+  fetch('/stop').catch(()=>{});
+  if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+  addLog('[STOP] Остановлено. Можно копировать лог.');
+}
+
+function doRun() {
+  fetch('/run').catch(()=>{});
+  addLog('[RUN]');
+  if (!_pollTimer) { _pollTimer = setInterval(pollStatus, 600); }
+}
+
+// LOG
+function addLog(l) { const e=document.getElementById('log-content'); if(e){e.textContent+=l+'\n'; e.scrollTop=e.scrollHeight;} }
+function toggleLog() { const w=document.getElementById('log-wrap'); w.classList.toggle('open'); document.getElementById('log-sub').textContent=w.classList.contains('open')?'ON':'OFF'; }
+function copyLog() { navigator.clipboard.writeText(document.getElementById('log-content').textContent); }
+function clearLog() { document.getElementById('log-content').textContent=''; }
+
+// Автоподключение
+setTimeout(connectUSB, 500);
+
+// Upload firmware
+function doUpload() { document.getElementById('fw-file').click(); }
+function onFwFile(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async (ev) => {
+    addLog('[UPLOAD] ' + file.name + ' (' + Math.round(ev.target.result.length/1024) + ' KB)...');
+    try {
+      const r = await fetch('/upload', { method: 'POST', body: ev.target.result });
+      const t = await r.text();
+      addLog('[UPLOAD] ' + t);
+      addLog('[UPLOAD] Pico перезагружается...');
+    } catch(err) {
+      addLog('[ERR] ' + err.message);
+    }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+}
+
 
 let longPressTimer = null;
 function startLongPress(e) {
@@ -1356,54 +1247,33 @@ function startLongPress(e) {
 function cancelLongPress() {
   if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
 }
-function showConnMenu() {
-  if (typeof AndroidUSB !== 'undefined') AndroidUSB.showConnectionMenu();
-}
 
-function sendRaw(s) {
-  const cmd = s.trim();
-  if (!cmd) return;
-  if (useProxy()) {
-    if (cmd === 'GET') return;
-    const parts = cmd.split(':');
-    if (parts.length === 2) {
-      fetch('/cmd/' + parts[0] + '/' + parts[1]).catch(() => {});
-    }
-    return;
-  }
-  if (!isPhone()) return;
-  if (cmd === 'GET' && isWifi()) return;
-  if (isWifi() && !_picoReady) return;
-  try { AndroidUSB.send(s); } catch (e) {}
-}
+
+
 
 // ─── Init ───
 window.addEventListener('load', () => {
-  if (isPhone()) {
-    _connMode = readConnMode();
-    const sub = document.getElementById('conn-sub');
-    if (sub && !connected) sub.textContent = HTML_VER;
-    if (useNativeScope()) document.body.classList.add('native-scope');
-  }
-  if (useProxy() && !_pollTimer) {
-    _pollTimer = setInterval(pollStatus, 600);
-  }
   selectMode('ch12');
   updateSum();
   initGesture();
 
-  if (useNativeScope()) {
-    pushScopeState();
-    setTimeout(pushScopeState, 300);
-    setTimeout(pushScopeState, 800);
-  } else {
-    const ro = new ResizeObserver(() => schedScope());
-    ro.observe(document.getElementById('scope-wrap'));
-    drawScope();
-    setTimeout(() => drawScope(), 300);
-    setTimeout(() => drawScope(), 800);
-  }
+  const ro = new ResizeObserver(() => drawScope());
+  ro.observe(document.getElementById('scope-wrap'));
+  drawScope();
+  setTimeout(() => drawScope(), 300);
+  setTimeout(() => drawScope(), 800);
 });
 </script>
+
+  <div class="log-wrap" id="log-wrap">
+    <div class="log-header">
+      <span>ТЕРМИНАЛ</span>
+      <div style="display:flex;gap:4px">
+        <button onclick="copyLog()">КОПИРОВАТЬ</button>
+        <button onclick="clearLog()">ОЧИСТИТЬ</button>
+      </div>
+    </div>
+    <div id="log-content"></div>
+  </div>
 </body>
 </html>
