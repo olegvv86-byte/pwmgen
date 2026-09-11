@@ -9,6 +9,7 @@
 | `firmware/` | Прошивка MicroPython. `FINAL все работает.py` — актуальная, версия **10_32** (заливать на Pico W как `main.py`). `2040_zero_main.py` — вариант для RP2040 Zero (USB). `boot.py` |
 | `web/` | Веб-интерфейс для ПК: `index_wifi.html` (по Wi-Fi), `index.html` |
 | `apk/` | Готовые сборки приложения. `PWMGen-1.6.3-h3.apk` — актуальная |
+| `pc/` | `POBEDA.zip` — программа управления для ПК (внутри `POBEDA.exe`, распаковать и запустить) |
 | `app/`, `gradle/`, `gradlew` | Исходники Android-приложения (собирается через GitHub Actions) |
 
 ## Перед заливкой прошивки
