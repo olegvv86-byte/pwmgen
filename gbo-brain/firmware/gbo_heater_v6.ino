@@ -13,7 +13,7 @@
      6 нет роста   7 таймаут 15 мин   8 разряд АКБ   9 перенапряжение
      10 канал бортсети в насыщении — не тот делитель
    ---------------------------------------------------------------------
-   v5, что изменено против v3 (пункты 1-3 появились в v4):
+   v6, что изменено против v3 (пункты 1-3 из v4, пункт 4 из v5):
 
    1. Холодный датчик больше не считается оборванным.
       Термистор 100 к с подтяжкой на 3,27 В при низкой температуре
@@ -40,6 +40,10 @@
       пластин, так что 250 ловили разгон уже после того, как уплотнения
       редуктора свой предел прошли. Уставка и пороги связаны и двигаются
       только вместе — см. SP_MAX.
+
+   5. Отсечка по просадке поднята с 10,5/11,5 на 11,0/12,0, чтобы зимой
+      нагрев не доедал аккумулятор. В журнал при возврате пишется дно
+      просадки — видно, насколько валит стартер.
    ===================================================================== */
 
 #include <WiFi.h>
@@ -100,7 +104,13 @@ const uint8_t  RISE_DUTY = 50;
 const uint32_t RISE_MS = 60000;
 const float    RISE_MIN = 5.0;
 const uint32_t RUN_TIMEOUT_MS = 15UL * 60UL * 1000UL;
-const float VBAT_LOW = 10.5, VBAT_BACK = 11.5, VBAT_DEAD = 9.5, VBAT_HIGH = 16.5;
+/* Порог снятия нагрева поднят с 10,5 до 11,0 — чтобы зимой не доедать
+   аккумулятор впустую. Порог возврата поднят следом, с 11,5 до 12,0:
+   гистерезис в вольт держит от дребезга на грани. Сам ТЭН при включении
+   просаживает бортсеть, и при узком зазоре нагрев принялся бы включать и
+   выключать сам себя. Прокрутка стартером уводит напряжение к 10 В и ниже,
+   так что на время старта нагрев снимется — так и задумано. */
+const float VBAT_LOW = 11.0, VBAT_BACK = 12.0, VBAT_DEAD = 9.5, VBAT_HIGH = 16.5;
 const uint32_t VBAT_DEAD_MS = 10000, VBAT_HIGH_MS = 1000;
 const uint32_t BOOT_HOLD_MS = 5000;
 const uint8_t  GOOD_NEEDED = 5;
@@ -160,6 +170,7 @@ uint8_t duty = 0;
 float integ = 0;
 uint8_t faultCode = 0;
 bool faultLatched = false, uvBlock = false;
+float uvMin = 0;            // дно текущей просадки, для журнала
 uint32_t deadSince = 0, ovSince = 0, divSince = 0;
 uint32_t riseT0 = 0, heatStart = 0;
 float riseStart = 0, riseMax = 0;
@@ -326,11 +337,16 @@ void checkProtections() {
     } else ovSince = 0;
 
     if (!uvBlock && vbat < VBAT_LOW) {
-      uvBlock = true; duty = 0; digitalWrite(PIN_GATE, LOW);
+      uvBlock = true; uvMin = vbat; duty = 0; digitalWrite(PIN_GATE, LOW);
       addLog("просадка " + String(vbat, 1) + " В — нагрев снят");
-    } else if (uvBlock && vbat > VBAT_BACK) {
-      uvBlock = false;
-      addLog("бортсеть " + String(vbat, 1) + " В — нагрев возобновлён");
+    } else if (uvBlock) {
+      // запоминаем дно просадки: по нему видно, насколько валит стартер
+      if (vbat < uvMin) uvMin = vbat;
+      if (vbat > VBAT_BACK) {
+        uvBlock = false;
+        addLog("бортсеть " + String(vbat, 1) + " В — нагрев возобновлён, дно " +
+               String(uvMin, 1) + " В");
+      }
     }
 
     if (vbat < VBAT_DEAD) {
