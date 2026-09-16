@@ -194,7 +194,8 @@ input[type=range].yellow::-webkit-slider-thumb { background: var(--yellow); box-
 .status-dot.on { background: var(--green); box-shadow: 0 0 4px var(--green); }
 
 /* приглушение всех показаний, пока связи нет */
-.stale .c-val, .stale .c-sub, .stale #sv-sp, .stale #sv-pw, .stale #sv-ct { opacity: 0.35; }
+.stale .c-val, .stale .c-sub, .stale .state-bar,
+.stale #sv-sp, .stale #sv-pw, .stale #sv-ct { opacity: 0.4; }
 .stale canvas#scope { opacity: 0.4; }
 
 /* ═══ ЭКРАН «ПЛАТА НЕ НАЙДЕНА» ═══ */
@@ -366,7 +367,7 @@ var hRed = [], hP1 = [], hP2 = [];
 var last = null;
 var online = false;
 var panel = 'sens';
-var logLines = 0;
+var logText = '';
 
 /* пока палец на ползунке и 600 мс после — входящие значения не трогают положение */
 var holdUntil = 0;
@@ -405,7 +406,7 @@ window.onNet = function (state, ip) {
     online = true;
     sub.textContent = 'ON';
     document.body.className = '';
-    setLink(true, 'ONLINE' + (ip ? '' : ''));
+    setLink(true, 'ONLINE');
   } else {
     online = false;
     sub.textContent = 'OFF';
@@ -518,10 +519,13 @@ function setSlider(id, v) {
 
 function renderLog(lines) {
   if (!lines) return;
-  if (lines.length === logLines && logLines > 0) return;
+  /* сравниваем содержимое, а не длину: буфер платы кольцевой на 20 строк,
+     после его заполнения длина больше не меняется */
+  var joined = lines.join('\n');
+  if (joined === logText) return;
   var el = document.getElementById('log');
-  el.textContent = lines.join('\n');
-  logLines = lines.length;
+  el.textContent = joined;
+  logText = joined;
   el.scrollTop = el.scrollHeight;
 }
 
