@@ -1,0 +1,1118 @@
+/* =====================================================================
+   Подогреватель редуктора ГБО — ESP32
+   Защиты + настройка уставок из веб-панели (сохраняются в памяти платы)
+   ---------------------------------------------------------------------
+   Настраивается на ходу:
+     SP  — уставка по пластинам, 60...90 °C    (было жёстко 75)
+     PWR — потолок мощности, 20...100 %
+     CUT — отсечка по редуктору, 40...80 °C
+   Значения пишутся в NVS и переживают выключение зажигания.
+
+   Коды аварий:
+     1 RT3   2 RT4   3 RT2   4 расхождение пластин   5 перегрев
+     6 нет роста   7 таймаут 15 мин   8 разряд АКБ   9 перенапряжение
+     10 канал бортсети в насыщении — не тот делитель
+   ---------------------------------------------------------------------
+   v11, что изменено против v3 (1-3 из v4, 4 из v5, 6 из v6, 7 из v7, 8-9 из v8, 10 из v9, 11 из v10):
+
+   1. Холодный датчик больше не считается оборванным.
+      Термистор 100 к с подтяжкой на 3,27 В при низкой температуре
+      уводит вывод под потолок АЦП: на пластинах (подтяжка 2,2 к) это
+      всё, что ниже ~47 °C, на редукторе (22 к) — ниже ~-3 °C. v3
+      трактовала это как обрыв и защёлкивала аварию 1 в первом же цикле
+      после включения, то есть при каждом холодном старте.
+      Теперь такое состояние — SENS_COLD: «холоднее, чем канал умеет
+      мерить». Нагрев разрешён, а обрыв ловится по поведению — если
+      пластина под нагревом не вошла в диапазон за COLD_MAX_MS,
+      поднимается её авария.
+
+   2. Канал бортсети проверяется на насыщение.
+      v3 молча умножала потолок АЦП на DIV_K и показывала правдоподобное,
+      но мёртвое число. Теперь при упоре в потолок vbat признаётся
+      недостоверным, нагрев блокируется и поднимается авария 10.
+
+   3. Делитель бортсети калибруется без перепрошивки.
+      GET /cal?v=12.67 — сказать плате, сколько на самом деле показывает
+      тестер, она сама пересчитает divK и сохранит в NVS.
+
+   4. Пороги по пластинам опущены со 250/220/150 на 120/105/70, предел
+      уставки со 130 на 90. Латунная вставка почти равна температуре
+      пластин, так что 250 ловили разгон уже после того, как уплотнения
+      редуктора свой предел прошли. Уставка и пороги связаны и двигаются
+      только вместе — см. SP_MAX.
+
+   5. Пороги просадки оставлены исходными, 10,5 снятие и 11,5 возврат.
+      В журнал при возврате пишется дно просадки — видно, насколько валит
+      стартер. Поднятый вариант 11,0/12,0 лежит в v6.
+
+   6. Кнопка Power в приложении: GET /set?en=0|1. Состояние живёт в NVS —
+      выключили, и плата не включится после зажигания, пока не включат
+      обратно. Свежая плата поднимается включённой.
+
+   7. Убран заброс температуры на разогреве. Накопитель регулятора копил и
+      там, где пластина ещё ниже границы измерения и в ошибке сидит
+      подставленное значение: за 13 секунд упирался в потолок, а потом
+      плата продолжала греть уже перевалив за уставку, пока он разряжался.
+      Теперь копит только когда пластины в диапазоне и мощность не упёрта
+      в потолок. Разряжаться ему не мешаем — полка держится ровно, как и
+      держалась.
+
+   8. Статистика в NVS: сколько прогревов, сколько всего секунд нагрева,
+      последнее и среднее время до готовности. Плюс последняя авария с
+      меткой времени — переживает выключение, журнал в оперативной памяти
+      её больше не теряет. Всё отдаётся в /api для окон приложения.
+
+   9. Заливка прошивки по WiFi: http://<адрес>/update. Нагрев на время
+      приёма снимается, сторожевой таймер кормится, старая прошивка
+      остаётся запасной до успешного конца.
+
+  10. Домашняя сеть задаётся через страницу /wifi и живёт в NVS, в исходник
+      её не пишем — файл уходит в репозиторий. Плюс имя gbo.local, чтобы не
+      искать адрес: http://gbo.local/update.
+      Заодно исправлено: v3..v8 проверяли strlen(STA_PASS), и при пустом
+      пароле плата к домашней сети не стучалась вообще.
+
+  12. Починено подключение к домашней сети, три причины сразу:
+      — ESP32 по умолчанию разрешает каналы 1..11, а роутеры в России часто
+        стоят на 12 или 13. Сканирование пассивное, поэтому сеть видна в
+        списке, а подключиться нельзя. Теперь открыты все 13.
+      — своя точка поднималась ДО подключения и занимала канал 1; в
+        совмещённом режиме оба интерфейса обязаны быть на одном канале.
+        Теперь сперва роутер, точка поверх, уже на его канале.
+      — попытка была одна. Теперь плата переподключается в фоне раз в
+        полминуты, без перезагрузки.
+      Состояние сети отдаётся в /api и видно в окне статистики приложения.
+
+  11. Своя точка теперь поднимается ВСЕГДА, одновременно с домашней сетью
+      (режим AP_STA). Запоротый пароль, переезд роутера или смена канала
+      больше не оставляют без связи: 192.168.4.1 доступен при любом раскладе.
+      На странице /wifi — список видимых сетей, выбор нажатием. Заодно он
+      отвечает на главный вопрос: видит ли плата домашнюю сеть вообще, ведь
+      ESP32 умеет только 2,4 ГГц. В журнал пишется причина неудачи —
+      «сеть не видна» и «не подошёл пароль» лечатся по-разному.
+   ===================================================================== */
+
+#include <WiFi.h>
+#include <WebServer.h>
+#include <Preferences.h>
+#include <esp_task_wdt.h>
+#include <math.h>
+#include <Update.h>
+#include <ESPmDNS.h>
+#include <esp_wifi.h>
+
+const char* STA_SSID = "HeadUnit";
+const char* STA_PASS = "";
+const char* AP_SSID  = "GBO-Heater";
+const char* AP_PASS  = "12345678";
+
+#define PIN_RELAY    19
+#define PIN_GATE     18
+#define PIN_LED       2
+#define PIN_RT3      32
+#define PIN_RT4      33
+#define PIN_RT2      34
+#define PIN_VBAT     35
+
+// ---- настраиваемые уставки (значения по умолчанию) ----
+float   spPlate = 75.0;    // 60...SP_MAX
+uint8_t dutyMax = 80;      // 20...100
+float   redOff  = 60.0;    // 40...80
+float   redOn   = 50.0;    // всегда redOff - 10
+
+// ---- неизменяемые пороги ----
+/* Пороги по пластинам опущены со 250/220: латунная вставка почти равна
+   температуре пластин, и к 250 уплотнения редуктора давно за своим пределом.
+
+   Три числа связаны и двигаются только вместе с пределом уставки SP_MAX:
+   уставка ≤ 90, мягкий предел на 15° выше неё, авария ещё на 15° выше.
+   Если опускать потолок дальше, придётся опускать и SP_MAX, иначе уставку
+   можно будет выставить выше порога аварии. */
+const float SP_MIN    = 60.0;    // предел ползунка уставки по пластинам
+const float SP_MAX    = 90.0;
+const float TEN_MAX   = 120.0;   // авария 5, нагрев снят
+const float TEN_SOFT  = 105.0;   // отсюда мощность срезается
+const float TEN_COOL  = 70.0;    // ниже этого разрешён сброс аварии 5
+const float KP = 8.0, KI = 0.25;
+const uint8_t  DUTY_SLEW  = 4;
+const uint16_t PWM_PERIOD = 500;
+const uint16_t CTRL_DT_MS = 250;
+const float    CTRL_DT    = CTRL_DT_MS / 1000.0;
+const uint16_t T_PRECHARGE = 600, T_SHUTDOWN = 300;
+
+const int   RAW_SHORT = 40, RAW_OPEN = 4055;
+const float T_MIN_PHYS = -45.0, T_MAX_PHYS = 400.0;
+// пластина холоднее ~47 °C уводит вывод под потолок АЦП и мерить себя не даёт;
+// для регулятора берём эту границу как заведомо заниженную оценку
+const float T_PLATE_FLOOR = 45.0;
+// сколько пластине даётся под нагревом, чтобы войти в диапазон; не вошла — обрыв
+const uint32_t COLD_MAX_MS = 120000;
+const float DIVERGE_MAX = 40.0;
+const uint32_t DIVERGE_MS = 5000;
+const uint8_t  RISE_DUTY = 50;
+const uint32_t RISE_MS = 60000;
+const float    RISE_MIN = 5.0;
+const uint32_t RUN_TIMEOUT_MS = 15UL * 60UL * 1000UL;
+/* Пороги просадки исходные. Прокрутка стартером уводит напряжение к 10 В и
+   ниже, так что на время старта нагрев снимется — так и задумано, а до
+   аварийных 9,5 с их десятисекундной выдержкой прокрутка не дотягивает.
+   Двигать снятие и возврат можно только вместе: гистерезис в вольт держит
+   от дребезга, ведь сам ТЭН при включении просаживает бортсеть, и при узком
+   зазоре нагрев принялся бы включать и выключать сам себя.
+   Поднятый вариант 11,0/12,0 лежит в v6. */
+const float VBAT_LOW = 10.5, VBAT_BACK = 11.5, VBAT_DEAD = 9.5, VBAT_HIGH = 16.5;
+const uint32_t VBAT_DEAD_MS = 10000, VBAT_HIGH_MS = 1000;
+const uint32_t BOOT_HOLD_MS = 5000;
+const uint8_t  GOOD_NEEDED = 5;
+const float IGN_THR = 6.0;
+
+const float VSUP  = 3.272;
+const float EMA_K = 0.2;
+
+// Делитель бортсети. v3 держала здесь 4.03, но замер показал на выводе 2,45 В
+// при 12,67 В питания — то есть делитель 5,17, и плата занижала напряжение на
+// четверть. Значение калибруется через /cal?v=<по тестеру> и живёт в NVS.
+float divK = 5.11;
+const float DIVK_MIN = 1.0, DIVK_MAX = 20.0;
+
+// Выше этого вывода АЦП ESP32 при 11 dB уходит из линейной зоны и занижает.
+// 2,45 В × divK ≈ 12,5 В — всё, что выше, читается с погрешностью.
+const float ADC_LIN_MAX_MV = 2450.0;
+// упор в потолок: напряжение недостоверно совсем
+const int RAW_VSAT = 4040;
+
+struct Ntc { float r25, beta, rpull; };
+Ntc NTC_PLATE = { 100000.0, 3950.0,  2200.0 };   // RT3 / RT4, подтяжка 2.2 к
+Ntc NTC_RED   = { 100000.0, 3950.0, 22000.0 };   // RT2, подтяжка 22 к
+
+/* Состояние канала датчика.
+   COLD и FAIL по одному отсчёту не различаются: и холодный термистор, и
+   оборванный провод одинаково уводят вывод под потолок. Поэтому «холодно»
+   и «оборвано» разводятся не по отсчёту, а по поведению под нагревом. */
+enum SensState { SENS_OK, SENS_COLD, SENS_FAIL };
+
+struct Sensor {
+  uint8_t pin; Ntc* ntc; int raw; float t;
+  bool valid, seeded; uint8_t good, faultCode;
+  SensState st; uint32_t coldSince;
+};
+Sensor S3 = { PIN_RT3, &NTC_PLATE, 0, NAN, false, false, 0, 1, SENS_FAIL, 0 };
+Sensor S4 = { PIN_RT4, &NTC_PLATE, 0, NAN, false, false, 0, 2, SENS_FAIL, 0 };
+Sensor SR = { PIN_RT2, &NTC_RED,   0, NAN, false, false, 0, 3, SENS_FAIL, 0 };
+
+/* Температура для регулятора: у холодного канала настоящего значения нет,
+   но известно, что он ниже границы измерения — этого достаточно. */
+float sensT(const Sensor &s) { return (s.st == SENS_COLD) ? T_PLATE_FLOOR : s.t; }
+bool  sensUsable(const Sensor &s) { return s.st != SENS_FAIL; }
+
+enum State { ST_IDLE, ST_PRECHARGE, ST_RUN, ST_SHUTDOWN };
+State state = ST_IDLE;
+uint32_t stateSince = 0;
+
+WebServer server(80);
+Preferences prefs;
+
+float vbat = 0;
+int   vbatRaw = 0, vbatMv = 0;
+bool  vbatValid = false, vbatNonlinLogged = false;
+bool  ignOn = false, warmedUp = false, relayOn = false;
+uint8_t duty = 0;
+float integ = 0;
+uint8_t faultCode = 0;
+bool faultLatched = false, uvBlock = false;
+/* Рабочий режим, кнопка Power в приложении. Живёт в NVS: выключили —
+   плата не включится и после зажигания, пока не включат обратно. */
+bool enabled = true;
+float uvMin = 0;            // дно текущей просадки, для журнала
+/* Статистика и последняя авария живут в NVS. Пишем редко — в конце прогрева
+   и в момент готовности, — чтобы не изнашивать память лишними записями. */
+uint32_t statRuns = 0;      // прогревов всего
+uint32_t statSecs = 0;      // секунд нагрева всего
+uint32_t statRdyLast = 0;   // последнее время до готовности, с
+uint32_t statRdySum = 0;    // сумма и счётчик — из них среднее
+uint32_t statRdyCnt = 0;
+String staSsid = "";       // домашняя сеть, задаётся на /wifi и живёт в NVS
+String staPass = "";
+
+uint8_t  lastFault = 0;     // последняя авария, переживает выключение
+uint32_t lastFaultAt = 0;   // на какой секунде от старта платы случилась
+
+uint32_t deadSince = 0, ovSince = 0, divSince = 0;
+uint32_t riseT0 = 0, heatStart = 0;
+float riseStart = 0, riseMax = 0;
+bool riseArmed = false;
+
+String logBuf[20];
+uint8_t logCount = 0;
+
+const char* faultText(uint8_t c) {
+  switch (c) {
+    case 1: return "датчик RT3 (пластина 1)";
+    case 2: return "датчик RT4 (пластина 2)";
+    case 3: return "датчик RT2 (редуктор)";
+    case 4: return "расхождение датчиков пластин";
+    case 5: return "перегрев пластин";
+    case 6: return "нет роста температуры";
+    case 7: return "таймаут 15 минут";
+    case 8: return "аккумулятор разряжен";
+    case 9: return "перенапряжение бортсети";
+    case 10: return "канал бортсети в насыщении";
+    default: return "";
+  }
+}
+
+void addLog(const String &s) {
+  uint32_t t = millis() / 1000;
+  char ts[16];
+  snprintf(ts, sizeof(ts), "%02u:%02u:%02u", t / 3600, (t / 60) % 60, t % 60);
+  String line = String(ts) + "  " + s;
+  if (logCount < 20) logBuf[logCount++] = line;
+  else { for (uint8_t i = 0; i < 19; i++) logBuf[i] = logBuf[i + 1]; logBuf[19] = line; }
+}
+
+void raiseFault(uint8_t code) {
+  if (faultLatched) return;
+  faultLatched = true; faultCode = code; duty = 0;
+  digitalWrite(PIN_GATE, LOW);
+  lastFault = code; lastFaultAt = millis() / 1000;
+  prefs.putUChar("lf", lastFault);
+  prefs.putULong("lfa", lastFaultAt);
+  addLog("АВАРИЯ " + String(code) + ": " + faultText(code));
+}
+
+int median5(int *a) {
+  for (uint8_t i = 0; i < 4; i++)
+    for (uint8_t j = i + 1; j < 5; j++)
+      if (a[j] < a[i]) { int t = a[i]; a[i] = a[j]; a[j] = t; }
+  return a[2];
+}
+
+void readSensor(Sensor &s) {
+  int raw[5], mv[5];
+  for (uint8_t i = 0; i < 5; i++) { raw[i] = analogRead(s.pin); mv[i] = analogReadMilliVolts(s.pin); }
+  s.raw = median5(raw);
+  float v = median5(mv) / 1000.0;
+
+  // вывод под потолком: термистор холодный либо оборван — по отсчёту не понять
+  if (s.raw > RAW_OPEN || v >= VSUP - 0.001) {
+    if (s.st != SENS_COLD) { s.st = SENS_COLD; s.coldSince = millis(); }
+    s.valid = false;
+    if (s.good < GOOD_NEEDED) s.good++;   // состояние известное, старт не тормозим
+    return;
+  }
+  // вывод у земли: замыкание термистора или проводки, это точно неисправность
+  if (s.raw < RAW_SHORT || v <= 0.001) {
+    s.st = SENS_FAIL; s.valid = false; s.good = 0; return;
+  }
+
+  float r = s.ntc->rpull * v / (VSUP - v);
+  float t = 1.0 / (1.0 / 298.15 + log(r / s.ntc->r25) / s.ntc->beta) - 273.15;
+  if (t < T_MIN_PHYS || t > T_MAX_PHYS) { s.st = SENS_FAIL; s.valid = false; s.good = 0; return; }
+
+  if (!s.seeded || s.st != SENS_OK) { s.t = t; s.seeded = true; }
+  else s.t += EMA_K * (t - s.t);
+  s.st = SENS_OK; s.valid = true; s.coldSince = 0;
+  if (s.good < GOOD_NEEDED) s.good++;
+}
+
+void readVbat() {
+  int raw[5], mv[5];
+  for (uint8_t i = 0; i < 5; i++) { raw[i] = analogRead(PIN_VBAT); mv[i] = analogReadMilliVolts(PIN_VBAT); }
+  vbatRaw = median5(raw);
+  vbatMv  = median5(mv);
+
+  // упор в потолок АЦП: умножать это на divK — значит рисовать мёртвое число
+  if (vbatRaw > RAW_VSAT) {
+    vbatValid = false; vbat = 0; ignOn = false; return;
+  }
+  vbatValid = true;
+  vbat = vbatMv / 1000.0 * divK;
+  ignOn = (vbat > IGN_THR);
+
+  // выше линейного участка АЦП показание занижается — предупреждаем один раз
+  if (vbatMv > ADC_LIN_MAX_MV && !vbatNonlinLogged) {
+    vbatNonlinLogged = true;
+    addLog("бортсеть вне линейной зоны АЦП, показание занижено");
+  }
+}
+
+void readAll() { readSensor(S3); readSensor(S4); readSensor(SR); readVbat(); }
+
+void setRelay(bool on) {
+  if (relayOn == on) return;
+  relayOn = on; digitalWrite(PIN_RELAY, on);
+  addLog(on ? "реле K1 замкнуто" : "реле K1 разомкнуто");
+}
+
+void checkProtections() {
+  uint32_t now = millis();
+  // замыкание — авария сразу, тут гадать не о чем
+  if (S3.st == SENS_FAIL) raiseFault(1);
+  if (S4.st == SENS_FAIL) raiseFault(2);
+  if (SR.st == SENS_FAIL) raiseFault(3);
+  if (faultLatched) return;
+
+  /* Холодная пластина под нагревом обязана войти в диапазон. Не вошла за
+     COLD_MAX_MS — значит это был не холод, а обрыв. Отсчёт идёт только пока
+     реально греем: в простое пластина остывшая совершенно законно. */
+  if (state == ST_RUN && duty >= RISE_DUTY) {
+    if (S3.st == SENS_COLD && S3.coldSince && now - S3.coldSince >= COLD_MAX_MS) raiseFault(1);
+    if (S4.st == SENS_COLD && S4.coldSince && now - S4.coldSince >= COLD_MAX_MS) raiseFault(2);
+    if (faultLatched) return;
+  } else {
+    if (S3.st == SENS_COLD) S3.coldSince = now;
+    if (S4.st == SENS_COLD) S4.coldSince = now;
+  }
+
+  if (!vbatValid) { raiseFault(10); return; }
+
+  /* Расхождение пластин проверяем только когда обе в диапазоне: пока одна
+     холодная, её температура — оценка снизу, и разница ничего не значит. */
+  if (S3.st == SENS_OK && S4.st == SENS_OK) {
+    if (fabs(S3.t - S4.t) > DIVERGE_MAX) {
+      if (divSince == 0) divSince = now;
+      else if (now - divSince >= DIVERGE_MS) raiseFault(4);
+    } else divSince = 0;
+  } else divSince = 0;
+
+  float tHot = max(sensT(S3), sensT(S4));
+  if (tHot >= TEN_MAX) { duty = 0; digitalWrite(PIN_GATE, LOW); raiseFault(5); return; }
+
+  float tPlate = (sensT(S3) + sensT(S4)) * 0.5;
+  /* Контроль роста — только когда обе пластины в диапазоне. У холодной
+     температура подменена границей и стоит на месте: проверка увидела бы
+     «нет роста» там, где пластина исправно греется, просто ниже шкалы.
+     Этот участок закрыт таймаутом COLD_MAX_MS выше. */
+  if (state == ST_RUN && duty >= RISE_DUTY && S3.st == SENS_OK && S4.st == SENS_OK) {
+    if (!riseArmed) { riseArmed = true; riseT0 = now; riseStart = tPlate; riseMax = tPlate; }
+    else {
+      if (tPlate > riseMax) riseMax = tPlate;
+      if (now - riseT0 >= RISE_MS) {
+        if (riseMax - riseStart < RISE_MIN) { raiseFault(6); return; }
+        riseT0 = now; riseStart = tPlate; riseMax = tPlate;
+      }
+    }
+  } else riseArmed = false;
+
+  if (state == ST_RUN) {
+    if (heatStart == 0) heatStart = now;
+    if (!warmedUp && now - heatStart >= RUN_TIMEOUT_MS) { raiseFault(7); return; }
+  } else if (state == ST_IDLE) heatStart = 0;
+
+  if (ignOn) {
+    if (vbat > VBAT_HIGH) {
+      if (ovSince == 0) ovSince = now;
+      else if (now - ovSince >= VBAT_HIGH_MS) { raiseFault(9); return; }
+    } else ovSince = 0;
+
+    if (!uvBlock && vbat < VBAT_LOW) {
+      uvBlock = true; uvMin = vbat; duty = 0; digitalWrite(PIN_GATE, LOW);
+      addLog("просадка " + String(vbat, 1) + " В — нагрев снят");
+    } else if (uvBlock) {
+      // запоминаем дно просадки: по нему видно, насколько валит стартер
+      if (vbat < uvMin) uvMin = vbat;
+      if (vbat > VBAT_BACK) {
+        uvBlock = false;
+        addLog("бортсеть " + String(vbat, 1) + " В — нагрев возобновлён, дно " +
+               String(uvMin, 1) + " В");
+      }
+    }
+
+    if (vbat < VBAT_DEAD) {
+      if (deadSince == 0) deadSince = now;
+      else if (now - deadSince >= VBAT_DEAD_MS) { raiseFault(8); return; }
+    } else deadSince = 0;
+  }
+}
+
+void control() {
+  uint32_t now = millis();
+  checkProtections();
+
+  bool prev = warmedUp;
+  if (SR.st == SENS_OK) {
+    if (SR.t >= redOff) warmedUp = true;
+    if (SR.t <= redOn)  warmedUp = false;
+  } else if (SR.st == SENS_COLD) {
+    warmedUp = false;   // холоднее нижней границы канала — прогрев точно нужен
+  }
+  if (warmedUp && !prev && heatStart) {
+    // дошли до отсечки — вот и время прогрева, его и копим для среднего
+    statRdyLast = (now - heatStart) / 1000;
+    statRdySum += statRdyLast; statRdyCnt++;
+    saveStats();
+  }
+  if (warmedUp != prev) {
+    String tr = (SR.st == SENS_OK) ? String(SR.t, 1) + " C" : String("холодный");
+    addLog(warmedUp ? "редуктор " + tr + " — подогрев не нужен"
+                    : "редуктор " + tr + " — подогрев снова нужен");
+  }
+
+  // холодный канал — тоже установившееся состояние, старт им тормозить незачем
+  bool bootReady = (now >= BOOT_HOLD_MS) && vbatValid &&
+                   sensUsable(S3) && sensUsable(S4) && sensUsable(SR) &&
+                   (S3.good >= GOOD_NEEDED) && (S4.good >= GOOD_NEEDED) &&
+                   (SR.good >= GOOD_NEEDED);
+  bool want = enabled && !faultLatched && !uvBlock && ignOn && !warmedUp && bootReady;
+
+  switch (state) {
+    case ST_IDLE:
+      duty = 0;
+      if (want) { setRelay(true); state = ST_PRECHARGE; stateSince = now; }
+      return;
+    case ST_PRECHARGE:
+      duty = 0;
+      if (!want) { state = ST_SHUTDOWN; stateSince = now; return; }
+      if (now - stateSince < T_PRECHARGE) return;
+      state = ST_RUN; integ = 0; heatStart = now;
+      statRuns++;
+      addLog("подогрев запущен");
+      break;
+    case ST_RUN:
+      if (!want) { duty = 0; state = ST_SHUTDOWN; stateSince = now;
+                   saveStats(); addLog("подогрев остановлен"); return; }
+      break;
+    case ST_SHUTDOWN:
+      duty = 0;
+      if (now - stateSince >= T_SHUTDOWN) { setRelay(false); state = ST_IDLE; }
+      return;
+  }
+
+  float tPlate = (sensT(S3) + sensT(S4)) * 0.5;
+  float err = spPlate - tPlate;
+
+  /* Накопитель копит только там, где в этом есть смысл.
+
+     Первое: пока пластина холоднее границы измерения, настоящей температуры
+     нет и в err сидит подставленное значение. Ошибка стоит колом, накопитель
+     за 13 секунд упирается в потолок, и потом плата продолжает греть уже
+     перевалив за уставку, пока он разряжается. Этот перелёт плата создавала
+     себе сама.
+
+     Второе: если мощность уже упёрта в потолок, копить нечего — выдать
+     больше всё равно нельзя, а разряжать потом долго.
+
+     Разряжаться накопителю не мешаем никогда: при отрицательной ошибке
+     условие не срабатывает, и он падает как обычно. */
+  bool plateSeen = (S3.st == SENS_OK && S4.st == SENS_OK);
+  bool saturated = (duty >= dutyMax);
+  if (plateSeen && !(saturated && err > 0)) {
+    integ += KI * err * CTRL_DT;
+    integ = constrain(integ, 0.0f, 100.0f);
+  }
+  float u = constrain(KP * err + integ, 0.0f, 100.0f);
+
+  float tHot = max(sensT(S3), sensT(S4));
+  float lim = (tHot > TEN_SOFT) ? 100.0 * (TEN_MAX - tHot) / (TEN_MAX - TEN_SOFT) : 100.0;
+  if (lim < 0) lim = 0;
+
+  uint8_t target = (uint8_t)(min(u, lim) + 0.5f);
+  if (target > dutyMax) target = dutyMax;
+  if (target > duty) duty = min<int>(target, duty + DUTY_SLEW);
+  else               duty = target;
+}
+
+void pwmTask() {
+  bool on = false;
+  if (state == ST_RUN && duty > 0 && !faultLatched) {
+    uint16_t pos = (uint16_t)(millis() % PWM_PERIOD);
+    on = pos < (uint32_t)duty * PWM_PERIOD / 100;
+  }
+  digitalWrite(PIN_GATE, on);
+}
+
+bool resetFault() {
+  if (!faultLatched) return true;
+  if (faultCode == 5 && max(sensT(S3), sensT(S4)) > TEN_COOL) return false;
+  faultLatched = false; faultCode = 0;
+  uvBlock = false; deadSince = ovSince = divSince = 0;
+  riseArmed = false; heatStart = 0; integ = 0;
+  addLog("авария сброшена вручную");
+  return true;
+}
+
+void saveStats() {
+  prefs.putULong("sruns", statRuns);
+  prefs.putULong("ssecs", statSecs);
+  prefs.putULong("srdyl", statRdyLast);
+  prefs.putULong("srdys", statRdySum);
+  prefs.putULong("srdyc", statRdyCnt);
+}
+
+void saveSettings() {
+  prefs.putFloat("sp", spPlate);
+  prefs.putUChar("pwr", dutyMax);
+  prefs.putFloat("cut", redOff);
+  prefs.putFloat("divk", divK);
+  prefs.putBool("en", enabled);
+}
+
+// ------------------------- Панель -------------------------------------
+const char PAGE[] PROGMEM = R"HTML(<!DOCTYPE html><html lang="ru"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GBO HEATER</title><style>
+:root{--bg:#0a0e13;--pan:#121922;--line:#1e2a36;--yel:#ffd23f;--cyan:#22d3ee;
+--blu:#2b6cff;--red:#ff4d4d;--grn:#3ddc84;--tx:#e8eef5;--dim:#6b7c8d}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:var(--bg);color:var(--tx);
+font:14px/1.35 ui-monospace,"Roboto Mono",monospace;padding:10px}
+.hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.hd b{color:var(--yel);font-size:17px;letter-spacing:2px}
+.dot{font-size:12px;color:var(--grn)}
+.st{padding:13px;border-radius:6px;text-align:center;font-weight:700;
+letter-spacing:1px;border:1px solid var(--line);margin-bottom:10px}
+.s-run{background:#0e2a18;color:var(--grn);border-color:#1d4a2c}
+.s-idle{background:#221d0a;color:var(--yel);border-color:#4a3f14}
+.s-err{background:#2a0e0e;color:var(--red);border-color:#4a1d1d}
+canvas{background:var(--pan);border:1px solid var(--line);border-radius:6px;
+width:100%;height:190px;display:block}
+.leg{display:flex;gap:16px;justify-content:center;margin:6px 0 10px;font-size:11px;color:var(--dim)}
+.leg i{display:inline-block;width:14px;height:3px;vertical-align:middle;margin-right:5px}
+.gr{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px}
+.cell{background:var(--pan);border:1px solid var(--line);border-radius:6px;padding:10px 8px;text-align:center}
+.cl{font-size:10px;color:var(--dim);letter-spacing:1px}
+.cv{font-size:25px;font-weight:700;margin-top:2px}
+.cr{font-size:10px;color:#3f4e5c;margin-top:3px}
+.sec{background:var(--pan);border:1px solid var(--line);border-radius:6px;
+padding:12px;margin-bottom:10px}
+.sec h3{margin:0 0 12px;font-size:11px;color:var(--dim);letter-spacing:2px;font-weight:400}
+.sl{display:flex;align-items:center;gap:10px;margin-bottom:16px}
+.sl:last-child{margin-bottom:0}
+.sn{width:42px;font-size:12px;font-weight:700}
+.sv{width:62px;text-align:right;font-size:19px;font-weight:700}
+.su{width:16px;font-size:11px;color:var(--dim)}
+input[type=range]{-webkit-appearance:none;flex:1;height:26px;background:transparent}
+input[type=range]::-webkit-slider-runnable-track{height:4px;background:var(--line);border-radius:2px}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;height:24px;
+border-radius:50%;margin-top:-10px;background:var(--blu);border:2px solid var(--bg)}
+input.y::-webkit-slider-thumb{background:var(--yel)}
+input.c::-webkit-slider-thumb{background:var(--cyan)}
+.bar{height:6px;background:#070a0e;border-radius:3px;overflow:hidden;margin-top:6px}
+.bf{height:100%;background:var(--blu);width:0;transition:width .4s}
+button{width:100%;padding:15px;border:1px solid #5a2020;border-radius:6px;
+background:#2a0e0e;color:var(--red);font:700 13px ui-monospace,monospace;letter-spacing:1px}
+button:disabled{background:var(--pan);color:#38454f;border-color:var(--line)}
+pre{background:var(--pan);border:1px solid var(--line);border-radius:6px;padding:10px;
+font-size:11px;max-height:180px;overflow:auto;margin:10px 0 0;white-space:pre-wrap;color:var(--dim)}
+</style></head><body>
+<div class="hd"><b>GBO HEATER</b><span class="dot" id="dot">● ONLINE</span></div>
+<div class="st s-idle" id="st">…</div>
+<canvas id="g"></canvas>
+<div class="leg">
+<span><i style="background:#ff4d4d"></i>РЕДУКТОР</span>
+<span><i style="background:#22d3ee"></i>ПЛАСТИНА 1</span>
+<span><i style="background:#ffd23f"></i>ПЛАСТИНА 2</span></div>
+<div class="gr">
+<div class="cell"><div class="cl">РЕДУКТОР</div><div class="cv" id="red" style="color:var(--red)">--</div><div class="cr" id="rr">ADC --</div></div>
+<div class="cell"><div class="cl">ПЛАСТИНА 1</div><div class="cv" id="p1" style="color:var(--cyan)">--</div><div class="cr" id="r1">ADC --</div></div>
+<div class="cell"><div class="cl">ПЛАСТИНА 2</div><div class="cv" id="p2" style="color:var(--yel)">--</div><div class="cr" id="r2">ADC --</div></div>
+</div>
+<div class="gr">
+<div class="cell"><div class="cl">БОРТСЕТЬ</div><div class="cv" id="ub" style="font-size:21px">--</div></div>
+<div class="cell"><div class="cl">МОЩНОСТЬ</div><div class="cv" id="pw" style="font-size:21px;color:var(--blu)">--</div><div class="bar"><div class="bf" id="bp"></div></div></div>
+<div class="cell"><div class="cl">РЕЛЕ K1</div><div class="cv" id="rl" style="font-size:14px;margin-top:8px">--</div></div>
+</div>
+<div class="sec"><h3>НАСТРОЙКА</h3>
+<div class="sl"><span class="sn" style="color:var(--cyan)">SP</span>
+<input type="range" class="c" id="s-sp" min="60" max="90" step="1" oninput="lv('sp',this.value)" onchange="send()">
+<span class="sv" id="v-sp" style="color:var(--cyan)">--</span><span class="su">°C</span></div>
+<div class="sl"><span class="sn" style="color:var(--blu)">PWR</span>
+<input type="range" id="s-pw" min="20" max="100" step="5" oninput="lv('pw',this.value)" onchange="send()">
+<span class="sv" id="v-pw" style="color:var(--blu)">--</span><span class="su">%</span></div>
+<div class="sl"><span class="sn" style="color:var(--yel)">CUT</span>
+<input type="range" class="y" id="s-ct" min="40" max="80" step="1" oninput="lv('ct',this.value)" onchange="send()">
+<span class="sv" id="v-ct" style="color:var(--yel)">--</span><span class="su">°C</span></div>
+</div>
+<button id="rst" onclick="rst()">СБРОС АВАРИИ</button>
+<pre id="log"></pre>
+<script>
+const H=[[],[],[]],MAX=300,C=['#ff4d4d','#22d3ee','#ffd23f'];
+let touching=false;
+document.querySelectorAll('input[type=range]').forEach(e=>{
+ e.addEventListener('pointerdown',()=>touching=true);
+ e.addEventListener('pointerup',()=>setTimeout(()=>touching=false,600));});
+function lv(k,v){document.getElementById('v-'+k).textContent=v;}
+async function send(){
+ const sp=s_sp.value,pw=s_pw.value,ct=s_ct.value;
+ await fetch(`/set?sp=${sp}&pw=${pw}&ct=${ct}`);}
+async function rst(){const r=await fetch('/reset');
+ if((await r.text())!=='ok')alert('Пластина ещё горячая — сброс после остывания ниже 150 °C');tick();}
+function draw(){const c=g,x=c.getContext('2d');
+ c.width=c.clientWidth*2;c.height=380;x.clearRect(0,0,c.width,c.height);
+ x.strokeStyle='#1a2530';x.lineWidth=1;
+ for(let i=1;i<5;i++){const y=c.height*i/5;x.beginPath();x.moveTo(0,y);x.lineTo(c.width,y);x.stroke();}
+ for(let i=1;i<6;i++){const px=c.width*i/6;x.beginPath();x.moveTo(px,0);x.lineTo(px,c.height);x.stroke();}
+ H.forEach((s,i)=>{if(s.length<2)return;x.strokeStyle=C[i];x.lineWidth=3;x.beginPath();
+ s.forEach((v,j)=>{const px=j/(MAX-1)*c.width,py=c.height-(v/280)*c.height;
+ j?x.lineTo(px,py):x.moveTo(px,py);});x.stroke();});}
+async function tick(){try{const r=await fetch('/api');const d=await r.json();
+ dot.style.color='#3ddc84';dot.textContent='● ONLINE';
+ const f=v=>v===null?'--':v.toFixed(1);
+ red.textContent=f(d.red);p1.textContent=f(d.p1);p2.textContent=f(d.p2);
+ rr.textContent='ADC '+d.rawR;r1.textContent='ADC '+d.raw1;r2.textContent='ADC '+d.raw2;
+ ub.textContent=f(d.vbat)+' В';pw.textContent=d.duty+' %';bp.style.width=d.duty+'%';
+ rl.textContent=d.relay?'ЗАМКНУТО':'РАЗОМКНУТО';
+ rl.style.color=d.relay?'#3ddc84':'#6b7c8d';
+ if(!touching){s_sp.value=d.sp;lv('sp',d.sp);s_pw.value=d.pwr;lv('pw',d.pwr);
+  s_ct.value=d.cut;lv('ct',d.cut);}
+ rst.disabled=!d.latched;
+ const s=st;
+ if(d.latched){s.className='st s-err';s.textContent='АВАРИЯ '+d.fault+' · '+d.ftext.toUpperCase();}
+ else if(d.uv){s.className='st s-idle';s.textContent='ПРОСАДКА · НАГРЕВ СНЯТ';}
+ else if(d.warm){s.className='st s-idle';s.textContent='РЕДУКТОР ПРОГРЕТ · ОБЕСТОЧЕНО';}
+ else if(d.state==2){s.className='st s-run';s.textContent='НАГРЕВ';}
+ else if(d.state==1){s.className='st s-run';s.textContent='ЗАПУСК';}
+ else{s.className='st s-idle';s.textContent='ОЖИДАНИЕ';}
+ [d.red??0,d.p1??0,d.p2??0].forEach((v,i)=>{H[i].push(v);if(H[i].length>MAX)H[i].shift();});
+ draw();log.textContent=d.log.join('\n');}
+ catch(e){dot.style.color='#ff4d4d';dot.textContent='● OFFLINE';}}
+setInterval(tick,1000);tick();
+</script></body></html>)HTML";
+
+String jn(float v, bool ok) { return (!ok || isnan(v)) ? String("null") : String(v, 1); }
+
+void handleApi() {
+  String j = "{";
+  j += "\"red\":"   + jn(SR.t, SR.valid);
+  j += ",\"p1\":"   + jn(S3.t, S3.valid);
+  j += ",\"p2\":"   + jn(S4.t, S4.valid);
+  j += ",\"rawR\":" + String(SR.raw);
+  j += ",\"raw1\":" + String(S3.raw);
+  j += ",\"raw2\":" + String(S4.raw);
+  j += ",\"duty\":" + String(duty);
+  j += ",\"vbat\":" + (vbatValid ? String(vbat, 1) : String("null"));
+  j += ",\"rawV\":" + String(vbatRaw);
+  j += ",\"mvV\":"  + String(vbatMv);
+  j += ",\"divk\":" + String(divK, 3);
+  j += ",\"sp\":"   + String((int)spPlate);
+  j += ",\"pwr\":"  + String(dutyMax);
+  j += ",\"cut\":"  + String((int)redOff);
+  j += ",\"tmax\":" + String((int)TEN_MAX);   // потолок шкалы столбцов в приложении
+  j += ",\"relay\":"   + String(relayOn ? "true" : "false");
+  j += ",\"en\":"      + String(enabled ? "true" : "false");
+  // статистика и последняя авария — для окон приложения
+  j += ",\"runs\":"  + String(statRuns);
+  j += ",\"secs\":"  + String(statSecs);
+  j += ",\"rdyL\":"  + String(statRdyLast);
+  j += ",\"rdyA\":"  + String(statRdyCnt ? statRdySum / statRdyCnt : 0);
+  j += ",\"lf\":"    + String(lastFault);
+  j += ",\"lfa\":"   + String(lastFaultAt);
+  j += ",\"up\":"    + String(millis() / 1000);
+  j += ",\"ip\":\""  + (WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString()
+                                             : WiFi.softAPIP().toString()) + "\"";
+  // состояние домашней сети — чтобы не лазить за ним в браузер
+  j += ",\"sta\":"   + String(WiFi.status() == WL_CONNECTED ? 1 : 0);
+  j += ",\"ssid\":\"" + staSsid + "\"";
+  j += ",\"warm\":"    + String(warmedUp ? "true" : "false");
+  j += ",\"uv\":"      + String(uvBlock ? "true" : "false");
+  j += ",\"latched\":" + String(faultLatched ? "true" : "false");
+  j += ",\"cold\":[" + String(S3.st == SENS_COLD ? 1 : 0) + "," +
+                       String(S4.st == SENS_COLD ? 1 : 0) + "," +
+                       String(SR.st == SENS_COLD ? 1 : 0) + "]";
+  j += ",\"state\":"   + String((int)state);
+  j += ",\"fault\":"   + String(faultCode);
+  j += ",\"ftext\":\"" + String(faultText(faultCode)) + "\"";
+  j += ",\"log\":[";
+  for (uint8_t i = 0; i < logCount; i++) { if (i) j += ","; j += "\"" + logBuf[i] + "\""; }
+  j += "]}";
+  server.send(200, "application/json", j);
+}
+
+void handleSet() {
+  bool ch = false;
+  if (server.hasArg("sp")) {
+    float v = constrain(server.arg("sp").toFloat(), SP_MIN, SP_MAX);
+    if (v != spPlate) { spPlate = v; ch = true; }
+  }
+  if (server.hasArg("pw")) {
+    uint8_t v = constrain(server.arg("pw").toInt(), 20, 100);
+    if (v != dutyMax) { dutyMax = v; ch = true; }
+  }
+  if (server.hasArg("ct")) {
+    float v = constrain(server.arg("ct").toFloat(), 40.0f, 80.0f);
+    if (v != redOff) { redOff = v; redOn = v - 10.0; ch = true; }
+  }
+  /* Кнопка Power. Выключение действует немедленно: скважность в ноль,
+     затвор закрыт, а реле разомкнёт машина состояний следующим циклом. */
+  if (server.hasArg("en")) {
+    bool v = server.arg("en").toInt() != 0;
+    if (v != enabled) {
+      enabled = v;
+      if (!enabled) { duty = 0; digitalWrite(PIN_GATE, LOW); }
+      prefs.putBool("en", enabled);
+      addLog(enabled ? "включено кнопкой" : "выключено кнопкой");
+    }
+  }
+  if (ch) {
+    saveSettings();
+    addLog("уставки: SP " + String((int)spPlate) + " C, PWR " + String(dutyMax) +
+           " %, CUT " + String((int)redOff) + " C");
+  }
+  server.send(200, "text/plain", "ok");
+}
+
+/* Калибровка делителя бортсети по тестеру: /cal?v=12.67
+   Плата берёт своё же измерение на выводе и пересчитывает divK, поэтому
+   заодно компенсируется и погрешность самого АЦП. */
+void handleCal() {
+  if (!server.hasArg("v")) { server.send(200, "text/plain", "no-v"); return; }
+  float vTrue = server.arg("v").toFloat();
+  if (vTrue < 5.0 || vTrue > 20.0)  { server.send(200, "text/plain", "range"); return; }
+  if (!vbatValid)                   { server.send(200, "text/plain", "sat");   return; }
+  if (vbatMv > ADC_LIN_MAX_MV)      { server.send(200, "text/plain", "nonlin"); return; }
+  if (vbatMv < 200)                 { server.send(200, "text/plain", "low");   return; }
+
+  float k = vTrue / (vbatMv / 1000.0);
+  if (k < DIVK_MIN || k > DIVK_MAX) { server.send(200, "text/plain", "range"); return; }
+
+  divK = k;
+  saveSettings();
+  vbat = vbatMv / 1000.0 * divK;
+  addLog("калибровка: " + String(vTrue, 2) + " В при " + String(vbatMv) +
+         " мВ, делитель " + String(divK, 3));
+  server.send(200, "text/plain", "ok " + String(divK, 3));
+}
+
+/* ─────────────────── Заливка прошивки по WiFi ───────────────────
+   Страница http://<адрес платы>/update — выбрать .bin и залить.
+
+   Приём файла надолго занимает основной цикл, поэтому перед началом нагрев
+   снимается принудительно: скважность в ноль, затвор закрыт, реле разомкнуто.
+   Сторожевой таймер кормим на каждом куске, иначе он перезагрузит плату
+   посреди заливки.
+
+   Новая прошивка пишется во второй слот памяти, старая остаётся на месте до
+   успешного завершения. Оборвалась связь или выключили питание — плата
+   поднимется на старой прошивке. */
+const char UPDATE_PAGE[] PROGMEM = R"HTML(<!DOCTYPE html><html lang="ru"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Прошивка GBO</title><style>
+body{margin:0;background:#040408;color:#e8eef5;font:15px/1.6 ui-monospace,monospace;padding:18px}
+h1{font-size:16px;color:#ffc300;letter-spacing:2px;margin:0 0 14px}
+p{color:#7d8db0;font-size:13px;margin:0 0 10px}
+input[type=file]{display:block;margin:16px 0;color:#7d8db0;font-size:13px}
+button{background:#0a0f1a;color:#00aaff;border:1px solid #1a2540;border-radius:5px;
+padding:12px 20px;font:15px ui-monospace,monospace;cursor:pointer}
+#bar{height:8px;background:#1a2540;border-radius:4px;margin-top:16px;overflow:hidden;display:none}
+#pi{display:block;height:100%;width:0;background:#00ff88}
+#msg{margin-top:14px;font-size:13px;color:#ffc300}
+</style></head><body>
+<h1>ЗАЛИВКА ПРОШИВКИ</h1>
+<p>Файл .bin делается в Arduino IDE: Скетч — Экспорт бинарного файла.</p>
+<p>Нагрев на время заливки снимается. Не выключайте питание и не уходите из сети.</p>
+<input type="file" id="f" accept=".bin">
+<button onclick="go()">ЗАЛИТЬ</button>
+<div id="bar"><i id="pi"></i></div>
+<div id="msg"></div>
+<script>
+function go(){
+ var f=document.getElementById('f').files[0];
+ if(!f){document.getElementById('msg').textContent='Файл не выбран';return;}
+ var fd=new FormData();fd.append('u',f,f.name);
+ var x=new XMLHttpRequest();
+ document.getElementById('bar').style.display='block';
+ x.upload.onprogress=function(e){
+  if(e.lengthComputable)document.getElementById('pi').style.width=(e.loaded/e.total*100)+'%';};
+ x.onload=function(){document.getElementById('msg').textContent=x.responseText;};
+ x.onerror=function(){document.getElementById('msg').textContent='Обрыв связи при заливке';};
+ x.open('POST','/update');x.send(fd);
+}
+</script></body></html>)HTML";
+
+void handleUpdateDone() {
+  bool ok = !Update.hasError();
+  server.sendHeader("Connection", "close");
+  server.send(200, "text/plain", ok ? "Готово, плата перезагружается"
+                                    : "Ошибка заливки, осталась старая прошивка");
+  delay(400);
+  if (ok) ESP.restart();
+}
+
+void handleUpdateData() {
+  HTTPUpload &up = server.upload();
+  esp_task_wdt_reset();
+
+  if (up.status == UPLOAD_FILE_START) {
+    duty = 0;
+    digitalWrite(PIN_GATE, LOW);
+    setRelay(false);
+    saveStats();
+    addLog("заливка прошивки: " + up.filename);
+    Update.begin(UPDATE_SIZE_UNKNOWN);
+  } else if (up.status == UPLOAD_FILE_WRITE) {
+    Update.write(up.buf, up.currentSize);
+  } else if (up.status == UPLOAD_FILE_END) {
+    Update.end(true);
+  }
+}
+
+/* ─────────────────── Настройка сети ───────────────────
+   Имя и пароль домашней сети задаются через страницу /wifi и лежат в NVS.
+   В исходник их не пишем: файл уходит в репозиторий на GitHub.
+
+   Порядок при старте: если сеть задана — пробуем подключиться 10 секунд.
+   Не вышло или не задана — поднимаем свою точку, чтобы не остаться без
+   связи совсем и было куда зайти и поправить. */
+
+const char WIFI_PAGE[] PROGMEM = R"HTML(<!DOCTYPE html><html lang="ru"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Сеть GBO</title><style>
+body{margin:0;background:#040408;color:#e8eef5;font:15px/1.6 ui-monospace,monospace;padding:18px}
+h1{font-size:16px;color:#ffc300;letter-spacing:2px;margin:0 0 14px}
+p{color:#7d8db0;font-size:13px;margin:0 0 12px}
+label{display:block;font-size:12px;color:#7d8db0;margin:12px 0 4px}
+input{width:100%;box-sizing:border-box;background:#0a0f1a;color:#e8eef5;
+border:1px solid #1a2540;border-radius:5px;padding:11px;font:15px ui-monospace,monospace}
+button{margin-top:18px;background:#0a0f1a;color:#00aaff;border:1px solid #1a2540;
+border-radius:5px;padding:12px 20px;font:15px ui-monospace,monospace;cursor:pointer}
+b{color:#00ff88}
+.n{background:#0a0f1a;border:1px solid #1a2540;border-radius:5px;padding:10px;
+margin:6px 0;cursor:pointer;font-size:14px}
+.n i{color:#2a3550;font-style:normal;font-size:11px}
+</style></head><body>
+<h1>СЕТЬ ПЛАТЫ</h1>
+<p>Впишите домашнюю сеть — плата будет подключаться к ней и станет видна
+с компьютера без переключения Wi-Fi.</p>
+<p>Оставьте имя пустым, чтобы плата поднимала только свою точку.</p>
+<button type="button" onclick="scan()" id="sb">НАЙТИ СЕТИ</button>
+<div id="list"></div>
+<form method="POST" action="/wifi">
+<label>Имя сети</label><input name="s" id="s" maxlength="32" value="%SSID%">
+<label>Пароль</label><input name="p" type="password" maxlength="63" placeholder="без изменений">
+<button type="submit">СОХРАНИТЬ И ПЕРЕЗАГРУЗИТЬСЯ</button>
+</form>
+<p style="margin-top:20px">Сейчас: <b>%NOW%</b></p>
+<script>
+function scan(){
+ var b=document.getElementById('sb'),L=document.getElementById('list');
+ b.textContent='ИЩУ...';L.innerHTML='';
+ var x=new XMLHttpRequest();
+ x.onload=function(){
+  b.textContent='НАЙТИ СЕТИ';
+  var a=[];try{a=JSON.parse(x.responseText)}catch(e){}
+  if(!a.length){L.innerHTML='<p>Плата не видит ни одной сети. Она умеет только 2,4 ГГц.</p>';return;}
+  var h='<p>Плата видит эти сети. Нажмите нужную:</p>';
+  for(var i=0;i<a.length;i++)
+   h+='<div class="n" onclick="pick(this)">'+a[i].s+
+      ' <i>'+a[i].r+' дБм'+(a[i].e?'':' · открытая')+'</i></div>';
+  L.innerHTML=h;};
+ x.onerror=function(){b.textContent='НАЙТИ СЕТИ';L.innerHTML='<p>Не получилось</p>';};
+ x.open('GET','/scan');x.send();
+}
+function pick(d){document.getElementById('s').value=d.firstChild.textContent.trim();}
+</script>
+<p>После перезагрузки плата будет доступна по имени <b>gbo.local</b>, а её
+адрес виден в приложении: долгое нажатие на кнопку Wi-Fi.</p>
+</body></html>)HTML";
+
+/* Список видимых сетей. Заодно отвечает на вопрос, видит ли плата
+   домашнюю сеть вообще — она умеет только 2,4 ГГц. */
+void handleScan() {
+  int n = WiFi.scanNetworks();
+  String j = "[";
+  for (int i = 0; i < n && i < 20; i++) {
+    if (i) j += ",";
+    String s = WiFi.SSID(i);
+    s.replace("\\\\", ""); s.replace("\"", "");
+    j += "{\"s\":\"" + s + "\",\"r\":" + String(WiFi.RSSI(i)) +
+         ",\"e\":" + String(WiFi.encryptionType(i) == WIFI_AUTH_OPEN ? 0 : 1) + "}";
+  }
+  j += "]";
+  WiFi.scanDelete();
+  server.send(200, "application/json", j);
+}
+
+void handleWifiPage() {
+  String p = FPSTR(WIFI_PAGE);
+  p.replace("%SSID%", staSsid);
+  String now = (WiFi.status() == WL_CONNECTED)
+             ? ("в сети " + staSsid + ", адрес " + WiFi.localIP().toString())
+             : ("своя точка " + String(AP_SSID) + ", адрес " + WiFi.softAPIP().toString());
+  p.replace("%NOW%", now);
+  server.send(200, "text/html; charset=utf-8", p);
+}
+
+void handleWifiSave() {
+  if (server.hasArg("s")) staSsid = server.arg("s");
+  // пустой пароль значит «не менять» — иначе правка имени сбрасывала бы пароль
+  if (server.hasArg("p") && server.arg("p").length()) staPass = server.arg("p");
+
+  prefs.putString("ssid", staSsid);
+  prefs.putString("pass", staPass);
+  addLog("сеть задана: " + (staSsid.length() ? staSsid : String("только своя точка")));
+
+  server.send(200, "text/html; charset=utf-8",
+              "<meta charset=utf-8><body style='background:#040408;color:#ffc300;"
+              "font:15px ui-monospace,monospace;padding:20px'>Сохранено, плата "
+              "перезагружается. Если не подключится к сети — поднимет свою точку.");
+  delay(500);
+  ESP.restart();
+}
+
+/* Почему не подключилось — важнее самого факта: «сеть не видна» и «пароль
+   не подошёл» лечатся совершенно по-разному. */
+const char* wifiWhy(wl_status_t s) {
+  switch (s) {
+    case WL_NO_SSID_AVAIL:   return "сеть не видна — она точно 2,4 ГГц?";
+    case WL_CONNECT_FAILED:  return "не подошёл пароль";
+    case WL_CONNECTION_LOST: return "связь потеряна";
+    case WL_DISCONNECTED:    return "роутер не ответил";
+    case WL_IDLE_STATUS:     return "не успела за отведённое время";
+    default:                 return "причина неизвестна";
+  }
+}
+
+/* По умолчанию ESP32 разрешает каналы 1..11. Роутеры в России часто стоят
+   на 12 или 13, и тогда сеть ВИДНА в сканировании (оно пассивное), но
+   подключиться нельзя — передача на этих каналах запрещена. Симптом
+   обманчивый: в списке сеть есть, а связи нет. Открываем все 13. */
+void openAllChannels() {
+  wifi_country_t c;
+  memset(&c, 0, sizeof(c));
+  strcpy(c.cc, "RU");
+  c.schan  = 1;
+  c.nchan  = 13;
+  c.policy = WIFI_COUNTRY_POLICY_MANUAL;
+  esp_wifi_set_country(&c);
+}
+
+/* Порядок важен: сперва цепляемся к роутеру и только потом поднимаем свою
+   точку. В совмещённом режиме обе сети обязаны работать на одном канале, и
+   точка, поднятая первой, занимает канал 1 и мешает подключению. */
+void startWifi() {
+  staSsid = prefs.getString("ssid", "");
+  staPass = prefs.getString("pass", "");
+
+  WiFi.mode(WIFI_STA);
+  openAllChannels();
+  WiFi.setSleep(false);          // со сном сервер отвечает рывками
+
+  if (staSsid.length()) {
+    WiFi.begin(staSsid.c_str(), staPass.c_str());
+    uint32_t t0 = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - t0 < 20000) {
+      delay(200);
+      esp_task_wdt_reset();
+    }
+    if (WiFi.status() == WL_CONNECTED)
+      addLog("сеть " + staSsid + ", адрес " + WiFi.localIP().toString() +
+             ", канал " + String(WiFi.channel()));
+    else
+      addLog("сеть " + staSsid + " — " + wifiWhy(WiFi.status()));
+  }
+
+  // своя точка поверх — уже на том канале, который занял роутер
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.softAP(AP_SSID, AP_PASS);
+  addLog("своя точка " + WiFi.softAPIP().toString());
+
+  // короткое имя вместо адреса: http://gbo.local/update
+  if (MDNS.begin("gbo")) {
+    MDNS.addService("http", "tcp", 80);
+    addLog("имя в сети: gbo.local");
+  }
+}
+
+/* Не подключились с первого раза — пробуем дальше в фоне, раз в полминуты.
+   Роутер мог перезагружаться или быть занят, перезагружать ради этого плату
+   незачем. Цикл не блокируем, нагреву не мешаем. */
+uint32_t tWifiTry = 0;
+bool staWasUp = false;
+
+void wifiKeepAlive(uint32_t now) {
+  if (!staSsid.length()) return;
+
+  if (WiFi.status() == WL_CONNECTED) {
+    if (!staWasUp) {
+      staWasUp = true;
+      addLog("сеть " + staSsid + ", адрес " + WiFi.localIP().toString());
+    }
+    tWifiTry = now;
+    return;
+  }
+
+  staWasUp = false;
+  if (now - tWifiTry < 30000) return;
+  tWifiTry = now;
+  WiFi.begin(staSsid.c_str(), staPass.c_str());
+}
+
+void setup() {
+  pinMode(PIN_RELAY, OUTPUT); digitalWrite(PIN_RELAY, LOW);
+  pinMode(PIN_GATE,  OUTPUT); digitalWrite(PIN_GATE,  LOW);
+  pinMode(PIN_LED,   OUTPUT); digitalWrite(PIN_LED,   LOW);
+
+  Serial.begin(115200);
+  analogSetPinAttenuation(PIN_RT3,  ADC_11db);
+  analogSetPinAttenuation(PIN_RT4,  ADC_11db);
+  analogSetPinAttenuation(PIN_RT2,  ADC_11db);
+  analogSetPinAttenuation(PIN_VBAT, ADC_11db);
+
+  prefs.begin("gbo", false);
+  // в памяти могла остаться уставка от прошивки со старым потолком 130
+  spPlate = constrain(prefs.getFloat("sp", 75.0), SP_MIN, SP_MAX);
+  dutyMax = prefs.getUChar("pwr", 80);
+  redOff  = prefs.getFloat("cut", 60.0);
+  redOn   = redOff - 10.0;
+  divK    = prefs.getFloat("divk", divK);
+  enabled = prefs.getBool("en", true);
+  statRuns    = prefs.getULong("sruns", 0);
+  statSecs    = prefs.getULong("ssecs", 0);
+  statRdyLast = prefs.getULong("srdyl", 0);
+  statRdySum  = prefs.getULong("srdys", 0);
+  statRdyCnt  = prefs.getULong("srdyc", 0);
+  lastFault   = prefs.getUChar("lf", 0);
+  lastFaultAt = prefs.getULong("lfa", 0);
+
+#if ESP_IDF_VERSION_MAJOR >= 5
+  esp_task_wdt_config_t wcfg = { .timeout_ms = 5000, .idle_core_mask = 0, .trigger_panic = true };
+  esp_task_wdt_reconfigure(&wcfg);
+#else
+  esp_task_wdt_init(5, true);
+#endif
+  esp_task_wdt_add(NULL);
+
+  startWifi();
+
+  server.on("/", []() { server.send_P(200, "text/html; charset=utf-8", PAGE); });
+  server.on("/api", handleApi);
+  server.on("/set", handleSet);
+  server.on("/cal", handleCal);
+  server.on("/reset", []() { server.send(200, "text/plain", resetFault() ? "ok" : "hot"); });
+  server.on("/update", HTTP_GET,
+            []() { server.send_P(200, "text/html; charset=utf-8", UPDATE_PAGE); });
+  server.on("/update", HTTP_POST, handleUpdateDone, handleUpdateData);
+  server.on("/scan", handleScan);
+  server.on("/wifi", HTTP_GET,  handleWifiPage);
+  server.on("/wifi", HTTP_POST, handleWifiSave);
+  server.begin();
+
+  readAll();
+  addLog("старт: SP " + String((int)spPlate) + " C, PWR " + String(dutyMax) +
+         " %, CUT " + String((int)redOff) + " C");
+}
+
+uint32_t tSens = 0, tCtrl = 0, tLog = 0;
+
+void loop() {
+  esp_task_wdt_reset();
+  server.handleClient();
+  uint32_t now = millis();
+
+  wifiKeepAlive(now);
+  if (now - tSens >= 200)        { tSens = now; readAll(); }
+  if (now - tCtrl >= CTRL_DT_MS) { tCtrl = now; control(); }
+  pwmTask();
+
+  if (faultLatched)  digitalWrite(PIN_LED, (now / 150) & 1);
+  else if (uvBlock)  digitalWrite(PIN_LED, (now / 400) & 1);
+  else if (warmedUp) digitalWrite(PIN_LED, (now / 800) & 1);
+  else               digitalWrite(PIN_LED, state == ST_RUN && duty > 0);
+
+  if (now - tLog >= 1000) {
+    tLog = now;
+    if (state == ST_RUN) statSecs++;
+    Serial.printf("P1=%.1f(%d) P2=%.1f(%d) RED=%.1f(%d) U=%.1f duty=%u st=%d flt=%u\n",
+                  S3.t, S3.raw, S4.t, S4.raw, SR.t, SR.raw, vbat, duty, (int)state, faultCode);
+  }
+}

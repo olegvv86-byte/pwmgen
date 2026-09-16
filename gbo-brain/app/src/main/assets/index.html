@@ -586,6 +586,7 @@ input[type=range].yellow::-webkit-slider-thumb { background: var(--yellow); box-
     <div class="ws-row"><b>В среднем до готовности</b><span id="ws-rdya">--</span></div>
     <div class="ws-row"><b>Плата на ходу</b><span id="ws-up">--</span></div>
     <div class="ws-row"><b>Адрес платы</b><span id="ws-ip">--</span></div>
+    <div class="ws-row"><b>Домашняя сеть</b><span id="ws-sta">--</span></div>
     <div class="ws-note">Прошивка заливается по сети: откройте в браузере
       <b>gbo.local/update</b> или адрес платы со строкой <b>/update</b>.
       Домашняя сеть задаётся там же, на странице <b>/wifi</b>.</div>
@@ -1090,6 +1091,10 @@ function renderStats(d) {
   document.getElementById('ws-rdya').textContent = dur(d.rdyA);
   document.getElementById('ws-up').textContent = dur(d.up);
   document.getElementById("ws-ip").textContent = d.ip || "--";
+  var sta = document.getElementById("ws-sta");
+  if (!d.ssid) { sta.textContent = "не задана"; sta.style.color = "var(--dim)"; }
+  else if (d.sta)  { sta.textContent = d.ssid; sta.style.color = "var(--green)"; }
+  else             { sta.textContent = d.ssid + " · нет связи"; sta.style.color = "var(--red)"; }
 }
 
 /* Кнопка Power. Переключаем вид сразу, а входящее состояние платы игнорируем
