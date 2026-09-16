@@ -191,7 +191,8 @@ body {
 
 /* ─ ползунки ─ */
 .slider-row { display: flex; align-items: center; gap: 5px; margin-bottom: 5px; }
-.sl-name { font-size: 10px; width: 30px; flex-shrink: 0; }
+.sl-name { font-size: 10px; width: 44px; flex-shrink: 0; }
+.set-hint { font-size: 8px; color: #1f2b45; line-height: 1.5; padding-top: 1px; }
 .sl-val { font-family: 'Share Tech Mono', monospace; font-size: 16px; min-width: 40px; text-align: right; }
 .sl-unit { font-size: 9px; color: var(--dim); width: 18px; }
 
@@ -350,22 +351,26 @@ input[type=range].yellow::-webkit-slider-thumb { background: var(--yellow); box-
     <!-- уставки -->
     <div class="panel" id="panel-set">
       <div class="slider-row">
-        <span class="sl-name" style="color:var(--cyan)">SP</span>
+        <span class="sl-name" style="color:var(--cyan)">ПЛАСТ</span>
         <input type="range" id="sl-sp" min="60" max="130" step="1" value="75">
         <span class="sl-val" id="sv-sp" style="color:var(--cyan)">75</span>
         <span class="sl-unit">°C</span>
       </div>
       <div class="slider-row">
-        <span class="sl-name" style="color:var(--blue)">PWR</span>
+        <span class="sl-name" style="color:var(--blue)">МОЩН</span>
         <input type="range" id="sl-pw" min="20" max="100" step="5" value="80" class="blue">
         <span class="sl-val" id="sv-pw" style="color:var(--blue)">80</span>
         <span class="sl-unit">%</span>
       </div>
       <div class="slider-row">
-        <span class="sl-name" style="color:var(--yellow)">CUT</span>
+        <span class="sl-name" style="color:var(--yellow)">ОТСЕЧ</span>
         <input type="range" id="sl-ct" min="40" max="80" step="1" value="60" class="yellow">
         <span class="sl-val" id="sv-ct" style="color:var(--yellow)">60</span>
         <span class="sl-unit">°C</span>
+      </div>
+      <div class="set-hint">
+        ПЛАСТ — до скольки греть пластины · МОЩН — потолок нагрева ·
+        ОТСЕЧ — при какой температуре редуктора выключиться
       </div>
     </div>
 
@@ -398,12 +403,7 @@ input[type=range].yellow::-webkit-slider-thumb { background: var(--yellow); box-
 <script>
 /* ═══════════════ СОСТОЯНИЕ ═══════════════ */
 
-var TMIN = 0, TMAX = 280;   /* шкала столбцов, как была у графика */
-
-/* Ниже этой температуры канал упирается в потолок АЦП и настоящего значения
-   не даёт: подтяжка 2,2 к на пластинах, 22 к на редукторе. Показываем границу
-   со знаком «меньше» — это честнее выдуманной цифры. */
-var COLD_FLOOR = { red: -3, p1: 47, p2: 47 };
+var TMIN = 0, TMAX = 280;   /* шкала столбцов */
 
 var last = null;
 var online = false;
@@ -488,8 +488,11 @@ window.onSetDone = function (ok) {
 
 /* Столбец: заливка растёт снизу по температуре, число едет вместе с её
    верхушкой. Пока столбец ниже высоты цифр, число не влезает внутрь —
-   сажаем его над заливкой и красим в цвет канала, иначе чёрное по чёрному. */
-function setBar(id, v, isCold, floor, adc) {
+   сажаем его над заливкой и красим в цвет канала, иначе чёрное по чёрному.
+
+   Значения нет — столбец пустой, вместо числа прочерк. Канал упирается в
+   потолок АЦП ниже границы измерения и там мерить нечем. */
+function setBar(id, v, adc) {
   var box   = document.getElementById(id);
   var fill  = box.querySelector('.bar-fill');
   var num   = box.querySelector('.bar-num');
@@ -498,14 +501,13 @@ function setBar(id, v, isCold, floor, adc) {
   adcEl.textContent = (adc === undefined || adc === null) ? '' : ('ADC ' + adc);
 
   var known = (v !== null && v !== undefined);
-  var t = known ? v : (isCold ? floor : TMIN);
 
-  var pct = (t - TMIN) / (TMAX - TMIN) * 100;
+  var pct = known ? (v - TMIN) / (TMAX - TMIN) * 100 : 0;
   if (pct < 0) pct = 0;
   if (pct > 100) pct = 100;
 
   fill.style.height = pct + '%';
-  num.textContent = known ? v.toFixed(1) : (isCold ? '<' + floor : '--');
+  num.textContent = known ? v.toFixed(1) : '--';
 
   var h = box.clientHeight || 1;
   var fillPx = h * pct / 100;
@@ -524,10 +526,9 @@ function setBar(id, v, isCold, floor, adc) {
 var barsAnim = false;
 
 function renderBars(d) {
-  var cold = d.cold || [0, 0, 0];   /* [пластина 1, пластина 2, редуктор] */
-  setBar('bar-red', d.red, cold[2], COLD_FLOOR.red, d.rawR);
-  setBar('bar-p1',  d.p1,  cold[0], COLD_FLOOR.p1,  d.raw1);
-  setBar('bar-p2',  d.p2,  cold[1], COLD_FLOOR.p2,  d.raw2);
+  setBar('bar-red', d.red, d.rawR);
+  setBar('bar-p1',  d.p1,  d.raw1);
+  setBar('bar-p2',  d.p2,  d.raw2);
 
   /* первый кадр ставим без анимации, дальше уже плавно */
   if (!barsAnim) {
@@ -581,7 +582,7 @@ function renderCards(d) {
 
 function renderSetpoints(d) {
   document.getElementById('setpoints').textContent =
-    'SP ' + d.sp + ' · PWR ' + d.pwr + ' · CUT ' + d.cut;
+    'ПЛАСТ ' + d.sp + ' · МОЩН ' + d.pwr + ' · ОТСЕЧ ' + d.cut;
 
   if (dragging || Date.now() < holdUntil) return;
 
