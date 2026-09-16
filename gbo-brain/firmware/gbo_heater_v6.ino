@@ -44,6 +44,10 @@
    5. Отсечка по просадке поднята с 10,5/11,5 на 11,0/12,0, чтобы зимой
       нагрев не доедал аккумулятор. В журнал при возврате пишется дно
       просадки — видно, насколько валит стартер.
+
+   6. Кнопка Power в приложении: GET /set?en=0|1. Состояние живёт в NVS —
+      выключили, и плата не включится после зажигания, пока не включат
+      обратно. Свежая плата поднимается включённой.
    ===================================================================== */
 
 #include <WiFi.h>
@@ -170,6 +174,9 @@ uint8_t duty = 0;
 float integ = 0;
 uint8_t faultCode = 0;
 bool faultLatched = false, uvBlock = false;
+/* Рабочий режим, кнопка Power в приложении. Живёт в NVS: выключили —
+   плата не включится и после зажигания, пока не включат обратно. */
+bool enabled = true;
 float uvMin = 0;            // дно текущей просадки, для журнала
 uint32_t deadSince = 0, ovSince = 0, divSince = 0;
 uint32_t riseT0 = 0, heatStart = 0;
@@ -378,7 +385,7 @@ void control() {
                    sensUsable(S3) && sensUsable(S4) && sensUsable(SR) &&
                    (S3.good >= GOOD_NEEDED) && (S4.good >= GOOD_NEEDED) &&
                    (SR.good >= GOOD_NEEDED);
-  bool want = !faultLatched && !uvBlock && ignOn && !warmedUp && bootReady;
+  bool want = enabled && !faultLatched && !uvBlock && ignOn && !warmedUp && bootReady;
 
   switch (state) {
     case ST_IDLE:
@@ -441,6 +448,7 @@ void saveSettings() {
   prefs.putUChar("pwr", dutyMax);
   prefs.putFloat("cut", redOff);
   prefs.putFloat("divk", divK);
+  prefs.putBool("en", enabled);
 }
 
 // ------------------------- Панель -------------------------------------
@@ -585,6 +593,7 @@ void handleApi() {
   j += ",\"cut\":"  + String((int)redOff);
   j += ",\"tmax\":" + String((int)TEN_MAX);   // потолок шкалы столбцов в приложении
   j += ",\"relay\":"   + String(relayOn ? "true" : "false");
+  j += ",\"en\":"      + String(enabled ? "true" : "false");
   j += ",\"warm\":"    + String(warmedUp ? "true" : "false");
   j += ",\"uv\":"      + String(uvBlock ? "true" : "false");
   j += ",\"latched\":" + String(faultLatched ? "true" : "false");
@@ -613,6 +622,17 @@ void handleSet() {
   if (server.hasArg("ct")) {
     float v = constrain(server.arg("ct").toFloat(), 40.0f, 80.0f);
     if (v != redOff) { redOff = v; redOn = v - 10.0; ch = true; }
+  }
+  /* Кнопка Power. Выключение действует немедленно: скважность в ноль,
+     затвор закрыт, а реле разомкнёт машина состояний следующим циклом. */
+  if (server.hasArg("en")) {
+    bool v = server.arg("en").toInt() != 0;
+    if (v != enabled) {
+      enabled = v;
+      if (!enabled) { duty = 0; digitalWrite(PIN_GATE, LOW); }
+      prefs.putBool("en", enabled);
+      addLog(enabled ? "включено кнопкой" : "выключено кнопкой");
+    }
   }
   if (ch) {
     saveSettings();
@@ -662,6 +682,7 @@ void setup() {
   redOff  = prefs.getFloat("cut", 60.0);
   redOn   = redOff - 10.0;
   divK    = prefs.getFloat("divk", divK);
+  enabled = prefs.getBool("en", true);
 
 #if ESP_IDF_VERSION_MAJOR >= 5
   esp_task_wdt_config_t wcfg = { .timeout_ms = 5000, .idle_core_mask = 0, .trigger_panic = true };

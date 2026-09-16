@@ -87,6 +87,15 @@ body {
   box-shadow: 0 0 8px #ff333366;
 }
 .sb-btn.off { opacity: 0.35; }
+/* кнопка Power: зелёная когда плата в работе, серая когда выключена */
+.sb-btn.pwr { color: var(--dim); border-color: var(--border); }
+.sb-btn.pwr svg { width: 22px; height: 22px; }
+.sb-btn.pwr.on {
+  color: var(--green);
+  border-color: var(--green);
+  background: #04180f;
+  box-shadow: 0 0 8px #00ff8844;
+}
 .sb-sep { width: 28px; height: 1px; background: var(--border); margin: 1px 0; flex-shrink: 0; }
 
 /* ═══ MAIN ═══ */
@@ -291,6 +300,14 @@ input[type=range].yellow::-webkit-slider-thumb { background: var(--yellow); box-
 
 <!-- SIDEBAR -->
 <div class="sidebar">
+  <div class="sb-btn pwr" id="btn-pwr" onclick="togglePower()" title="Рабочий режим платы">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="2.2" stroke-linecap="round">
+      <path d="M12 3.5v7.5"/>
+      <path d="M6.9 6.9a7.2 7.2 0 1 0 10.2 0"/>
+    </svg>
+  </div>
+  <div class="sb-sep"></div>
   <div class="sb-btn active" id="btn-sens" onclick="selectPanel('sens')">
     <span>°C</span><sub>ДАТЧ</sub>
   </div>
@@ -476,6 +493,9 @@ var holdUntil = 0;
 var dragging = false;
 var HOLD_MS = 600;
 
+/* то же для кнопки Power — см. togglePower */
+var pwrHoldUntil = 0;
+
 function bridge() {
   return (typeof AndroidGBO !== 'undefined') ? AndroidGBO : null;
 }
@@ -621,9 +641,18 @@ function renderState(d) {
   var bar = document.getElementById('state-bar');
   var cls = 'state-bar warn', txt = 'ОЖИДАНИЕ';
 
+  /* плата присылает своё состояние — кнопка всегда показывает правду,
+     даже если выключали с другого телефона или со встроенной страницы */
+  var on = (d.en === undefined) ? true : !!d.en;
+  if (Date.now() >= pwrHoldUntil) {
+    document.getElementById('btn-pwr').className = on ? 'sb-btn pwr on' : 'sb-btn pwr';
+  }
+
   if (d.latched) {
     cls = 'state-bar err';
     txt = 'АВАРИЯ ' + d.fault + ' · ' + String(d.ftext || '').toUpperCase();
+  } else if (!on) {
+    txt = 'ВЫКЛЮЧЕНО';
   } else if (d.uv) {
     txt = 'ПРОСАДКА · НАГРЕВ СНЯТ';
   } else if (d.warm) {
@@ -735,6 +764,19 @@ function sendParams() {
     parseInt(document.getElementById('sl-pw').value, 10),
     parseInt(document.getElementById('sl-ct').value, 10)
   );
+}
+
+/* Кнопка Power. Переключаем вид сразу, а входящее состояние платы игнорируем
+   секунду: команда и следующий опрос идут навстречу друг другу, и без этого
+   кнопка успевала бы моргнуть обратно. */
+function togglePower() {
+  var b = bridge();
+  if (!b) return;
+  var btn = document.getElementById('btn-pwr');
+  var next = btn.className.indexOf('on') < 0;
+  btn.className = next ? 'sb-btn pwr on' : 'sb-btn pwr';
+  pwrHoldUntil = Date.now() + 1200;
+  b.setEnabled(next);
 }
 
 function onResetTap() {
