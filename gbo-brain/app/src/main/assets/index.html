@@ -360,6 +360,7 @@ input[type=range].yellow::-webkit-slider-thumb { background: var(--yellow); box-
 .ws-row b { font-size: 11px; color: var(--text); font-weight: normal; }
 .ws-row span { font-size: 17px; color: var(--yellow); }
 .ws-note { font-size: 10px; color: var(--dim); margin-top: 12px; line-height: 1.6; }
+.ws-note b { color: var(--text); font-weight: normal; }
 
 /* тост вместо Toast — Android-диалоги не нужны ради одной строки */
 .toast {
@@ -584,6 +585,10 @@ input[type=range].yellow::-webkit-slider-thumb { background: var(--yellow); box-
     <div class="ws-row"><b>Последний до готовности</b><span id="ws-rdyl">--</span></div>
     <div class="ws-row"><b>В среднем до готовности</b><span id="ws-rdya">--</span></div>
     <div class="ws-row"><b>Плата на ходу</b><span id="ws-up">--</span></div>
+    <div class="ws-row"><b>Адрес платы</b><span id="ws-ip">--</span></div>
+    <div class="ws-note">Прошивка заливается по сети: откройте в браузере
+      <b>gbo.local/update</b> или адрес платы со строкой <b>/update</b>.
+      Домашняя сеть задаётся там же, на странице <b>/wifi</b>.</div>
     <div class="ws-note">Если время до готовности месяц за месяцем растёт — стоит
       посмотреть ТЭН, контакты и питание.</div>
   </div>
@@ -1084,6 +1089,7 @@ function renderStats(d) {
   document.getElementById('ws-rdyl').textContent = dur(d.rdyL);
   document.getElementById('ws-rdya').textContent = dur(d.rdyA);
   document.getElementById('ws-up').textContent = dur(d.up);
+  document.getElementById("ws-ip").textContent = d.ip || "--";
 }
 
 /* Кнопка Power. Переключаем вид сразу, а входящее состояние платы игнорируем
