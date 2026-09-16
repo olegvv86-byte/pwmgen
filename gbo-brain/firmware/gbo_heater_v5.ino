@@ -3,7 +3,7 @@
    Защиты + настройка уставок из веб-панели (сохраняются в памяти платы)
    ---------------------------------------------------------------------
    Настраивается на ходу:
-     SP  — уставка по пластинам, 60...130 °C   (было жёстко 75)
+     SP  — уставка по пластинам, 60...90 °C    (было жёстко 75)
      PWR — потолок мощности, 20...100 %
      CUT — отсечка по редуктору, 40...80 °C
    Значения пишутся в NVS и переживают выключение зажигания.
@@ -13,7 +13,7 @@
      6 нет роста   7 таймаут 15 мин   8 разряд АКБ   9 перенапряжение
      10 канал бортсети в насыщении — не тот делитель
    ---------------------------------------------------------------------
-   v4, что изменено против v3:
+   v5, что изменено против v3 (пункты 1-3 появились в v4):
 
    1. Холодный датчик больше не считается оборванным.
       Термистор 100 к с подтяжкой на 3,27 В при низкой температуре
@@ -34,6 +34,12 @@
    3. Делитель бортсети калибруется без перепрошивки.
       GET /cal?v=12.67 — сказать плате, сколько на самом деле показывает
       тестер, она сама пересчитает divK и сохранит в NVS.
+
+   4. Пороги по пластинам опущены со 250/220/150 на 120/105/70, предел
+      уставки со 130 на 90. Латунная вставка почти равна температуре
+      пластин, так что 250 ловили разгон уже после того, как уплотнения
+      редуктора свой предел прошли. Уставка и пороги связаны и двигаются
+      только вместе — см. SP_MAX.
    ===================================================================== */
 
 #include <WiFi.h>
@@ -56,15 +62,24 @@ const char* AP_PASS  = "12345678";
 #define PIN_VBAT     35
 
 // ---- настраиваемые уставки (значения по умолчанию) ----
-float   spPlate = 75.0;    // 60...130
+float   spPlate = 75.0;    // 60...SP_MAX
 uint8_t dutyMax = 80;      // 20...100
 float   redOff  = 60.0;    // 40...80
 float   redOn   = 50.0;    // всегда redOff - 10
 
 // ---- неизменяемые пороги ----
-const float TEN_MAX   = 250.0;
-const float TEN_SOFT  = 220.0;
-const float TEN_COOL  = 150.0;
+/* Пороги по пластинам опущены со 250/220: латунная вставка почти равна
+   температуре пластин, и к 250 уплотнения редуктора давно за своим пределом.
+
+   Три числа связаны и двигаются только вместе с пределом уставки SP_MAX:
+   уставка ≤ 90, мягкий предел на 15° выше неё, авария ещё на 15° выше.
+   Если опускать потолок дальше, придётся опускать и SP_MAX, иначе уставку
+   можно будет выставить выше порога аварии. */
+const float SP_MIN    = 60.0;    // предел ползунка уставки по пластинам
+const float SP_MAX    = 90.0;
+const float TEN_MAX   = 120.0;   // авария 5, нагрев снят
+const float TEN_SOFT  = 105.0;   // отсюда мощность срезается
+const float TEN_COOL  = 70.0;    // ниже этого разрешён сброс аварии 5
 const float KP = 8.0, KI = 0.25;
 const uint8_t  DUTY_SLEW  = 4;
 const uint16_t PWM_PERIOD = 500;
@@ -159,7 +174,7 @@ const char* faultText(uint8_t c) {
     case 2: return "датчик RT4 (пластина 2)";
     case 3: return "датчик RT2 (редуктор)";
     case 4: return "расхождение датчиков пластин";
-    case 5: return "перегрев выше 250 C";
+    case 5: return "перегрев пластин";
     case 6: return "нет роста температуры";
     case 7: return "таймаут 15 минут";
     case 8: return "аккумулятор разряжен";
@@ -479,7 +494,7 @@ font-size:11px;max-height:180px;overflow:auto;margin:10px 0 0;white-space:pre-wr
 </div>
 <div class="sec"><h3>НАСТРОЙКА</h3>
 <div class="sl"><span class="sn" style="color:var(--cyan)">SP</span>
-<input type="range" class="c" id="s-sp" min="60" max="130" step="1" oninput="lv('sp',this.value)" onchange="send()">
+<input type="range" class="c" id="s-sp" min="60" max="90" step="1" oninput="lv('sp',this.value)" onchange="send()">
 <span class="sv" id="v-sp" style="color:var(--cyan)">--</span><span class="su">°C</span></div>
 <div class="sl"><span class="sn" style="color:var(--blu)">PWR</span>
 <input type="range" id="s-pw" min="20" max="100" step="5" oninput="lv('pw',this.value)" onchange="send()">
@@ -552,6 +567,7 @@ void handleApi() {
   j += ",\"sp\":"   + String((int)spPlate);
   j += ",\"pwr\":"  + String(dutyMax);
   j += ",\"cut\":"  + String((int)redOff);
+  j += ",\"tmax\":" + String((int)TEN_MAX);   // потолок шкалы столбцов в приложении
   j += ",\"relay\":"   + String(relayOn ? "true" : "false");
   j += ",\"warm\":"    + String(warmedUp ? "true" : "false");
   j += ",\"uv\":"      + String(uvBlock ? "true" : "false");
@@ -571,7 +587,7 @@ void handleApi() {
 void handleSet() {
   bool ch = false;
   if (server.hasArg("sp")) {
-    float v = constrain(server.arg("sp").toFloat(), 60.0f, 130.0f);
+    float v = constrain(server.arg("sp").toFloat(), SP_MIN, SP_MAX);
     if (v != spPlate) { spPlate = v; ch = true; }
   }
   if (server.hasArg("pw")) {
@@ -624,7 +640,8 @@ void setup() {
   analogSetPinAttenuation(PIN_VBAT, ADC_11db);
 
   prefs.begin("gbo", false);
-  spPlate = prefs.getFloat("sp", 75.0);
+  // в памяти могла остаться уставка от прошивки со старым потолком 130
+  spPlate = constrain(prefs.getFloat("sp", 75.0), SP_MIN, SP_MAX);
   dutyMax = prefs.getUChar("pwr", 80);
   redOff  = prefs.getFloat("cut", 60.0);
   redOn   = redOff - 10.0;

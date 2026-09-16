@@ -119,6 +119,13 @@ body {
    тогда столбец едет непрерывно, а не дёргается ступенькой раз в секунду. */
 .bars.anim .bar-fill { transition: height 0.9s linear; }
 .bars.anim .bar-num  { transition: bottom 0.9s linear; }
+/* риска уставки: у пластин на уровне ПЛАСТ, у редуктора на уровне ОТСЕЧ */
+.bar-mark {
+  position: absolute; left: 0; right: 0;
+  border-top: 1px dashed currentColor;
+  opacity: 0.5;
+  pointer-events: none;
+}
 /* число едет вместе с верхушкой столбца */
 .bar-num {
   position: absolute; left: 0; right: 0;
@@ -314,18 +321,21 @@ input[type=range].yellow::-webkit-slider-thumb { background: var(--yellow); box-
     <div class="bars">
       <div class="bar" id="bar-red" style="color:var(--red)">
         <div class="bar-fill" style="background:var(--red)"></div>
+        <div class="bar-mark"></div>
         <div class="bar-adc">ADC ----</div>
         <div class="bar-num">--</div>
         <div class="bar-cap">РЕДУКТОР</div>
       </div>
       <div class="bar" id="bar-p1" style="color:var(--cyan)">
         <div class="bar-fill" style="background:var(--cyan)"></div>
+        <div class="bar-mark"></div>
         <div class="bar-adc">ADC ----</div>
         <div class="bar-num">--</div>
         <div class="bar-cap">ПЛАСТИНА 1</div>
       </div>
       <div class="bar" id="bar-p2" style="color:var(--yellow)">
         <div class="bar-fill" style="background:var(--yellow)"></div>
+        <div class="bar-mark"></div>
         <div class="bar-adc">ADC ----</div>
         <div class="bar-num">--</div>
         <div class="bar-cap">ПЛАСТИНА 2</div>
@@ -373,7 +383,7 @@ input[type=range].yellow::-webkit-slider-thumb { background: var(--yellow); box-
             <path d="M19 16.9h4.2M21.8 15.5 23.2 16.9l-1.4 1.4"/>
           </svg>
         </span>
-        <input type="range" id="sl-sp" min="60" max="130" step="1" value="75">
+        <input type="range" id="sl-sp" min="60" max="90" step="1" value="75">
         <span class="sl-val" id="sv-sp" style="color:var(--cyan)">75</span>
         <span class="sl-unit">°C</span>
       </div>
@@ -443,7 +453,18 @@ input[type=range].yellow::-webkit-slider-thumb { background: var(--yellow); box-
 <script>
 /* ═══════════════ СОСТОЯНИЕ ═══════════════ */
 
-var TMIN = 0, TMAX = 280;   /* шкала столбцов */
+/* У каналов разные рабочие диапазоны, поэтому и шкалы разные: на общей
+   шкале 0…280 редуктор со своими рабочими 26…60 °C жался к самому низу.
+
+   Редуктор 0…120 — половина столбца приходится на 60 °C, то есть ровно на
+   типовую отсечку.
+
+   Пластины масштабируются по порогу аварии, который плата присылает в
+   поле tmax. Столбец под потолок означает буквально «вот-вот авария 5».
+   Значение по умолчанию — на случай старой прошивки без этого поля. */
+var TMIN = 0;
+var TMAX_RED = 120;
+var tmaxPlate = 180;
 
 var last = null;
 var online = false;
@@ -532,7 +553,7 @@ window.onSetDone = function (ok) {
 
    Значения нет — столбец пустой, вместо числа прочерк. Канал упирается в
    потолок АЦП ниже границы измерения и там мерить нечем. */
-function setBar(id, v, adc) {
+function setBar(id, v, adc, tmax) {
   var box   = document.getElementById(id);
   var fill  = box.querySelector('.bar-fill');
   var num   = box.querySelector('.bar-num');
@@ -542,7 +563,7 @@ function setBar(id, v, adc) {
 
   var known = (v !== null && v !== undefined);
 
-  var pct = known ? (v - TMIN) / (TMAX - TMIN) * 100 : 0;
+  var pct = known ? (v - TMIN) / (tmax - TMIN) * 100 : 0;
   if (pct < 0) pct = 0;
   if (pct > 100) pct = 100;
 
@@ -565,10 +586,26 @@ function setBar(id, v, adc) {
 
 var barsAnim = false;
 
+/* Пунктир на уровне уставки: видно, догрелось или нет, без сравнения цифр */
+function setMark(id, v, tmax) {
+  var mark = document.getElementById(id).querySelector('.bar-mark');
+  if (v === null || v === undefined) { mark.style.display = 'none'; return; }
+  var pct = (v - TMIN) / (tmax - TMIN) * 100;
+  if (pct < 0 || pct > 100) { mark.style.display = 'none'; return; }
+  mark.style.display = 'block';
+  mark.style.bottom = pct + '%';
+}
+
 function renderBars(d) {
-  setBar('bar-red', d.red, d.rawR);
-  setBar('bar-p1',  d.p1,  d.raw1);
-  setBar('bar-p2',  d.p2,  d.raw2);
+  if (d.tmax) tmaxPlate = d.tmax;
+  setBar('bar-red', d.red, d.rawR, TMAX_RED);
+  setBar('bar-p1',  d.p1,  d.raw1, tmaxPlate);
+  setBar('bar-p2',  d.p2,  d.raw2, tmaxPlate);
+
+  /* риски: на пластинах уставка ПЛАСТ, на редукторе отсечка */
+  setMark('bar-red', d.cut, TMAX_RED);
+  setMark('bar-p1',  d.sp,  tmaxPlate);
+  setMark('bar-p2',  d.sp,  tmaxPlate);
 
   /* первый кадр ставим без анимации, дальше уже плавно */
   if (!barsAnim) {
