@@ -14,3 +14,9 @@
 .cxx
 local.properties
 /app/build
+
+# gbo-brain
+/gbo-brain/build
+/gbo-brain/app/build
+/gbo-brain/.gradle
+/gbo-brain/local.properties

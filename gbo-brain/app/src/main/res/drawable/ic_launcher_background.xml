@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Фон иконки: та же тёмная «сетка прибора», что и в pwmgen -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="0" android:startY="0"
+                android:endX="108" android:endY="108">
+                <item android:offset="0" android:color="#FF0C1B33" />
+                <item android:offset="0.55" android:color="#FF060C1A" />
+                <item android:offset="1" android:color="#FF02040A" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- сетка -->
+    <path
+        android:strokeColor="#FF15263F"
+        android:strokeWidth="0.9"
+        android:pathData="M18,0V108 M36,0V108 M54,0V108 M72,0V108 M90,0V108 M0,18H108 M0,36H108 M0,54H108 M0,72H108 M0,90H108" />
+
+    <!-- центральные оси чуть ярче -->
+    <path
+        android:strokeColor="#FF1E3459"
+        android:strokeWidth="1.4"
+        android:pathData="M54,0V108 M0,54H108" />
+</vector>

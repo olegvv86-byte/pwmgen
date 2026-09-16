@@ -53,3 +53,11 @@ STATIC_IP = "192.168.0.222"
 GitHub → Actions → workflow **Build APK** → артефакт `pwmgen-debug`.
 
 Локально: `./gradlew assembleDebug` (JDK 17, Android SDK 35). Путь к проекту **без кириллицы** — иначе AGP останавливает сборку.
+
+---
+
+## Соседний проект в этом же репозитории
+
+`gbo-brain/` — **Мозги для ГБО**: подогреватель редуктора на ESP32 и своё
+Android-приложение `GBO HEATER`. К генератору отношения не имеет, собирается
+отдельным workflow **Build GBO APK**. Подробности — в [gbo-brain/README.md](gbo-brain/README.md).

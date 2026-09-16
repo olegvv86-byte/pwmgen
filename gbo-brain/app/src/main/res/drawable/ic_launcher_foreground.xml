@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Передний план: жёлтая «G» сегментным шрифтом, под стиль приборной панели -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- свечение под буквой -->
+    <path
+        android:strokeColor="#33FFC300"
+        android:strokeWidth="15"
+        android:strokeLineCap="round"
+        android:pathData="M38,30 H70 M36,32 V52 M36,56 V76 M38,78 H70 M72,56 V76 M56,54 H72" />
+
+    <!-- сама буква -->
+    <path
+        android:strokeColor="#FFFFC300"
+        android:strokeWidth="7"
+        android:strokeLineCap="round"
+        android:pathData="M38,30 H70 M36,32 V52 M36,56 V76 M38,78 H70 M72,56 V76 M56,54 H72" />
+</vector>

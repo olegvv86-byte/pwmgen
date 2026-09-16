@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>GBO HEATER</title>
+<!-- HTML_VER: g1 -->
+<style>
+/* Гамма и компоненты взяты из pwmgen: без @import, интернета на магнитоле нет */
+
+:root {
+  --bg:      #040408;
+  --panel:   #060810;
+  --card:    #0a0f1a;
+  --border:  #1a2540;
+  --dim:     #2a3550;
+  --text:    #7d8db0;
+  --yellow:  #ffc300;
+  --blue:    #00aaff;
+  --green:   #00ff88;
+  --cyan:    #00ffee;
+  --red:     #ff3333;
+  --sb:      44px;
+}
+
+* { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; touch-action:manipulation; }
+
+body {
+  background: var(--bg);
+  color: var(--yellow);
+  font-family: 'Share Tech Mono', monospace;
+  height: 100vh;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* ═══ SIDEBAR ═══ */
+.sidebar {
+  width: var(--sb);
+  min-width: var(--sb);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 4px 0;
+  gap: 4px;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  z-index: 10;
+}
+
+.sb-btn {
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--dim);
+  border-radius: 5px;
+  background: var(--card);
+  color: var(--yellow);
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 9px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.2;
+  text-align: center;
+  flex-shrink: 0;
+}
+.sb-btn span { font-size: 10px; font-weight: bold; }
+.sb-btn sub  { font-size: 8px; color: var(--dim); }
+.sb-btn.active {
+  border-color: var(--blue);
+  background: #001a33;
+  color: var(--blue);
+  box-shadow: 0 0 8px #00aaff44;
+}
+.sb-btn.active sub { color: var(--blue); }
+.sb-btn.alarm {
+  border-color: #5a1414;
+  background: #2a0808;
+  color: var(--red);
+}
+.sb-btn.alarm.hot {
+  box-shadow: 0 0 8px #ff333366;
+}
+.sb-btn.off { opacity: 0.35; }
+.sb-sep { width: 28px; height: 1px; background: var(--border); margin: 1px 0; flex-shrink: 0; }
+
+/* ═══ MAIN ═══ */
+.main { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; }
+
+/* ═══ SCOPE ═══ */
+.scope-wrap { flex: 1; position: relative; overflow: hidden; min-height: 110px; }
+canvas#scope { position: absolute; left:0; top:0; width: 100%; height: 100%; }
+
+/* статусная плашка поверх графика — как top-bar в pwmgen */
+.state-bar {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  padding: 5px 8px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: bold;
+  letter-spacing: 2px;
+  background: #1a1400;
+  color: var(--yellow);
+  border-bottom: 1px solid var(--border);
+  z-index: 5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.state-bar.run  { background: #041a10; color: var(--green); }
+.state-bar.warn { background: #1a1400; color: var(--yellow); }
+.state-bar.err  { background: #2a0808; color: var(--red); }
+
+/* легенда графика */
+.legend {
+  position: absolute;
+  bottom: 2px; left: 6px;
+  display: flex; gap: 10px;
+  font-size: 9px; color: var(--dim);
+  z-index: 5;
+}
+.legend i { display:inline-block; width:14px; height:3px; margin-right:3px; vertical-align:middle; }
+
+/* ═══ CONTROLS ═══ */
+.ctrl { background: var(--panel); border-top: 1px solid var(--border); padding: 5px 6px; }
+.panel { display: none; }
+.panel.show { display: block; }
+
+/* ─ карточки показаний ─ */
+.cards { display: flex; gap: 4px; margin-bottom: 4px; }
+.card {
+  flex: 1;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 3px 5px 4px;
+  min-width: 0;
+  overflow: hidden;
+}
+.c-ttl { font-size: 8px; color: var(--dim); letter-spacing: 1px; white-space: nowrap; }
+.c-val { font-size: 19px; line-height: 1.1; white-space: nowrap; }
+.c-sub { font-size: 8px; color: #1f2b45; white-space: nowrap; }
+.c-bar { height: 4px; background: var(--border); border-radius: 2px; margin-top: 3px; overflow: hidden; }
+.c-bar i { display: block; height: 100%; width: 0; background: var(--blue); box-shadow: 0 0 5px var(--blue); }
+
+/* ─ ползунки ─ */
+.slider-row { display: flex; align-items: center; gap: 5px; margin-bottom: 5px; }
+.sl-name { font-size: 10px; width: 30px; flex-shrink: 0; }
+.sl-val { font-family: 'Share Tech Mono', monospace; font-size: 16px; min-width: 40px; text-align: right; }
+.sl-unit { font-size: 9px; color: var(--dim); width: 18px; }
+
+input[type=range] {
+  flex: 1; -webkit-appearance: none; appearance: none;
+  height: 6px; background: var(--border); border-radius: 3px; outline: none;
+  touch-action: pan-x; min-width: 0;
+}
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 30px; height: 30px; border-radius: 50%;
+  background: var(--cyan); cursor: pointer;
+  border: 2px solid var(--bg);
+  box-shadow: 0 0 6px var(--cyan);
+}
+input[type=range].blue::-webkit-slider-thumb { background: var(--blue); box-shadow: 0 0 6px var(--blue); }
+input[type=range].yellow::-webkit-slider-thumb { background: var(--yellow); box-shadow: 0 0 6px var(--yellow); }
+
+/* ─ журнал ─ */
+.log {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 4px 6px;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--text);
+  height: 104px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
+
+/* ═══ STATUS ═══ */
+.status-bar {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 2px 8px; background: var(--bg);
+  border-top: 1px solid var(--border); font-size: 9px; color: var(--dim);
+}
+.status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--red); display: inline-block; margin-right: 4px; vertical-align: middle; }
+.status-dot.on { background: var(--green); box-shadow: 0 0 4px var(--green); }
+
+/* приглушение всех показаний, пока связи нет */
+.stale .c-val, .stale .c-sub, .stale #sv-sp, .stale #sv-pw, .stale #sv-ct { opacity: 0.35; }
+.stale canvas#scope { opacity: 0.4; }
+
+/* ═══ ЭКРАН «ПЛАТА НЕ НАЙДЕНА» ═══ */
+.finder {
+  position: fixed; left:0; top:0; right:0; bottom:0;
+  background: var(--bg);
+  display: none;
+  flex-direction: column; align-items: center; justify-content: center;
+  gap: 14px; z-index: 100; padding: 20px;
+}
+.finder.show { display: flex; }
+.finder h1 { font-size: 15px; letter-spacing: 3px; color: var(--yellow); font-weight: bold; }
+.finder p { font-size: 10px; color: var(--dim); text-align: center; line-height: 1.6; }
+.f-btn {
+  min-width: 190px; padding: 10px 16px;
+  border: 1px solid var(--border); border-radius: 5px;
+  background: var(--card); color: var(--blue);
+  font-family: 'Share Tech Mono', monospace; font-size: 12px;
+  letter-spacing: 1px; cursor: pointer;
+}
+.f-btn.ghost { color: var(--dim); }
+.spin { font-size: 10px; color: var(--cyan); letter-spacing: 2px; }
+
+/* тост вместо Toast — Android-диалоги не нужны ради одной строки */
+.toast {
+  position: fixed; left: 50%; bottom: 14px;
+  transform: translateX(-50%);
+  background: #2a0808; color: var(--red);
+  border: 1px solid #5a1414; border-radius: 5px;
+  padding: 8px 14px; font-size: 11px; max-width: 86%;
+  text-align: center; z-index: 200; display: none;
+}
+.toast.show { display: block; }
+</style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<div class="sidebar">
+  <div class="sb-btn active" id="btn-sens" onclick="selectPanel('sens')">
+    <span>°C</span><sub>ДАТЧ</sub>
+  </div>
+  <div class="sb-btn" id="btn-set" onclick="selectPanel('set')">
+    <span>SET</span><sub>УСТ</sub>
+  </div>
+  <div class="sb-btn" id="btn-log" onclick="selectPanel('log')">
+    <span>LOG</span><sub>ЖУРН</sub>
+  </div>
+  <div class="sb-sep"></div>
+  <div class="sb-btn alarm off" id="btn-reset" onclick="onResetTap()">
+    <span style="font-size:14px">!</span><sub>СБРОС</sub>
+  </div>
+  <div style="flex:1"></div>
+  <div class="sb-btn" id="btn-conn" onclick="onConnTap()"
+       oncontextmenu="askIp(); return false;"
+       ontouchstart="startLongPress()" ontouchend="cancelLongPress()" ontouchmove="cancelLongPress()">
+    <span style="font-size:9px">WiFi</span><sub id="conn-sub">···</sub>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div class="main" id="main">
+
+  <!-- ГРАФИК -->
+  <div class="scope-wrap" id="scope-wrap">
+    <canvas id="scope"></canvas>
+    <div class="state-bar warn" id="state-bar">ОЖИДАНИЕ</div>
+    <div class="legend">
+      <span><i style="background:#ff3333"></i>РЕДУКТОР</span>
+      <span><i style="background:#00ffee"></i>ПЛАСТИНА 1</span>
+      <span><i style="background:#ffc300"></i>ПЛАСТИНА 2</span>
+    </div>
+  </div>
+
+  <!-- ПАНЕЛИ -->
+  <div class="ctrl">
+
+    <!-- показания -->
+    <div class="panel show" id="panel-sens">
+      <div class="cards">
+        <div class="card">
+          <div class="c-ttl">РЕДУКТОР</div>
+          <div class="c-val" id="v-red" style="color:var(--red)">--</div>
+          <div class="c-sub" id="v-rawR">ADC ----</div>
+        </div>
+        <div class="card">
+          <div class="c-ttl">ПЛАСТИНА 1</div>
+          <div class="c-val" id="v-p1" style="color:var(--cyan)">--</div>
+          <div class="c-sub" id="v-raw1">ADC ----</div>
+        </div>
+        <div class="card">
+          <div class="c-ttl">ПЛАСТИНА 2</div>
+          <div class="c-val" id="v-p2" style="color:var(--yellow)">--</div>
+          <div class="c-sub" id="v-raw2">ADC ----</div>
+        </div>
+      </div>
+      <div class="cards">
+        <div class="card">
+          <div class="c-ttl">БОРТСЕТЬ</div>
+          <div class="c-val" id="v-vbat" style="color:var(--green)">--</div>
+        </div>
+        <div class="card">
+          <div class="c-ttl">МОЩНОСТЬ</div>
+          <div class="c-val" id="v-duty" style="color:var(--blue)">0 %</div>
+          <div class="c-bar"><i id="v-dutybar"></i></div>
+        </div>
+        <div class="card">
+          <div class="c-ttl">РЕЛЕ K1</div>
+          <div class="c-val" id="v-relay" style="font-size:13px;color:var(--dim)">РАЗОМКНУТО</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- уставки -->
+    <div class="panel" id="panel-set">
+      <div class="slider-row">
+        <span class="sl-name" style="color:var(--cyan)">SP</span>
+        <input type="range" id="sl-sp" min="60" max="130" step="1" value="75">
+        <span class="sl-val" id="sv-sp" style="color:var(--cyan)">75</span>
+        <span class="sl-unit">°C</span>
+      </div>
+      <div class="slider-row">
+        <span class="sl-name" style="color:var(--blue)">PWR</span>
+        <input type="range" id="sl-pw" min="20" max="100" step="5" value="80" class="blue">
+        <span class="sl-val" id="sv-pw" style="color:var(--blue)">80</span>
+        <span class="sl-unit">%</span>
+      </div>
+      <div class="slider-row">
+        <span class="sl-name" style="color:var(--yellow)">CUT</span>
+        <input type="range" id="sl-ct" min="40" max="80" step="1" value="60" class="yellow">
+        <span class="sl-val" id="sv-ct" style="color:var(--yellow)">60</span>
+        <span class="sl-unit">°C</span>
+      </div>
+    </div>
+
+    <!-- журнал -->
+    <div class="panel" id="panel-log">
+      <div class="log" id="log"></div>
+    </div>
+
+  </div>
+
+  <!-- СТАТУС -->
+  <div class="status-bar">
+    <span><i class="status-dot" id="dot"></i><span id="link-text">ПОИСК ПЛАТЫ</span></span>
+    <span id="setpoints">SP -- · PWR -- · CUT --</span>
+  </div>
+
+</div>
+
+<!-- ПЛАТА НЕ НАЙДЕНА -->
+<div class="finder" id="finder">
+  <h1>ПЛАТА НЕ НАЙДЕНА</h1>
+  <p id="finder-msg">Проверьте, что телефон в одной сети с платой<br>или подключитесь к точке GBO-Heater</p>
+  <div class="spin" id="finder-spin" style="visibility:hidden">ПОИСК···</div>
+  <button class="f-btn" onclick="rescan()">ПОВТОРИТЬ ПОИСК</button>
+  <button class="f-btn ghost" onclick="askIp()">ВВЕСТИ АДРЕС ВРУЧНУЮ</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ═══════════════ СОСТОЯНИЕ ═══════════════ */
+
+var HIST = 300;          /* 300 точек по секунде — пять минут истории, ТЗ 5.3 */
+var TMIN = 0, TMAX = 280;
+
+var hRed = [], hP1 = [], hP2 = [];
+var last = null;
+var online = false;
+var panel = 'sens';
+var logLines = 0;
+
+/* пока палец на ползунке и 600 мс после — входящие значения не трогают положение */
+var holdUntil = 0;
+var dragging = false;
+var HOLD_MS = 600;
+
+function bridge() {
+  return (typeof AndroidGBO !== 'undefined') ? AndroidGBO : null;
+}
+
+/* ═══════════════ ПРИЁМ ДАННЫХ ИЗ JAVA ═══════════════ */
+
+/* onNet(state, ip): search | notfound | online | offline */
+window.onNet = function (state, ip) {
+  var fin = document.getElementById('finder');
+  var spin = document.getElementById('finder-spin');
+  var sub = document.getElementById('conn-sub');
+
+  if (state === 'search') {
+    spin.style.visibility = 'visible';
+    sub.textContent = '···';
+    setLink(false, 'ПОИСК ПЛАТЫ');
+    return;
+  }
+  if (state === 'notfound') {
+    spin.style.visibility = 'hidden';
+    fin.className = 'finder show';
+    sub.textContent = 'OFF';
+    setLink(false, 'ПЛАТА НЕ НАЙДЕНА');
+    return;
+  }
+  fin.className = 'finder';
+  spin.style.visibility = 'hidden';
+
+  if (state === 'online') {
+    online = true;
+    sub.textContent = 'ON';
+    document.body.className = '';
+    setLink(true, 'ONLINE' + (ip ? '' : ''));
+  } else {
+    online = false;
+    sub.textContent = 'OFF';
+    /* значения остаются на экране, но приглушены, ТЗ 3 */
+    document.body.className = 'stale';
+    setLink(false, 'OFFLINE');
+  }
+};
+
+function setLink(up, text) {
+  document.getElementById('dot').className = up ? 'status-dot on' : 'status-dot';
+  document.getElementById('link-text').textContent = text;
+}
+
+/* onApi(obj) — разобранный /api, объект приходит готовым из evaluateJavascript */
+window.onApi = function (d) {
+  last = d;
+
+  push(hRed, d.red);
+  push(hP1, d.p1);
+  push(hP2, d.p2);
+
+  drawScope();
+  renderState(d);
+  renderCards(d);
+  renderSetpoints(d);
+  renderLog(d.log);
+};
+
+window.onReset = function (res) {
+  if (res === 'hot') {
+    toast('Пластина ещё горячая, сброс после остывания ниже 150 °C');
+  } else if (res === 'err') {
+    toast('Плата не ответила');
+  }
+};
+
+window.onSetDone = function (ok) {
+  if (!ok) toast('Уставки не доехали до платы');
+};
+
+function push(arr, v) {
+  arr.push((v === null || v === undefined) ? null : v);
+  while (arr.length > HIST) arr.shift();
+}
+
+/* ═══════════════ ОТРИСОВКА ═══════════════ */
+
+function renderState(d) {
+  var bar = document.getElementById('state-bar');
+  var cls = 'state-bar warn', txt = 'ОЖИДАНИЕ';
+
+  if (d.latched) {
+    cls = 'state-bar err';
+    txt = 'АВАРИЯ ' + d.fault + ' · ' + String(d.ftext || '').toUpperCase();
+  } else if (d.uv) {
+    txt = 'ПРОСАДКА · НАГРЕВ СНЯТ';
+  } else if (d.warm) {
+    txt = 'РЕДУКТОР ПРОГРЕТ · ОБЕСТОЧЕНО';
+  } else if (d.state === 2) {
+    cls = 'state-bar run'; txt = 'НАГРЕВ';
+  } else if (d.state === 1) {
+    cls = 'state-bar run'; txt = 'ЗАПУСК';
+  }
+
+  bar.className = cls;
+  bar.textContent = txt;
+
+  var btn = document.getElementById('btn-reset');
+  btn.className = d.latched ? 'sb-btn alarm hot' : 'sb-btn alarm off';
+}
+
+function t1(v) {
+  return (v === null || v === undefined) ? '--' : v.toFixed(1);
+}
+
+function renderCards(d) {
+  document.getElementById('v-red').textContent = t1(d.red);
+  document.getElementById('v-p1').textContent = t1(d.p1);
+  document.getElementById('v-p2').textContent = t1(d.p2);
+  document.getElementById('v-rawR').textContent = 'ADC ' + d.rawR;
+  document.getElementById('v-raw1').textContent = 'ADC ' + d.raw1;
+  document.getElementById('v-raw2').textContent = 'ADC ' + d.raw2;
+
+  document.getElementById('v-vbat').textContent = t1(d.vbat) + ' В';
+  document.getElementById('v-duty').textContent = d.duty + ' %';
+  document.getElementById('v-dutybar').style.width = Math.max(0, Math.min(100, d.duty)) + '%';
+
+  var rel = document.getElementById('v-relay');
+  rel.textContent = d.relay ? 'ЗАМКНУТО' : 'РАЗОМКНУТО';
+  rel.style.color = d.relay ? 'var(--green)' : 'var(--dim)';
+}
+
+function renderSetpoints(d) {
+  document.getElementById('setpoints').textContent =
+    'SP ' + d.sp + ' · PWR ' + d.pwr + ' · CUT ' + d.cut;
+
+  if (dragging || Date.now() < holdUntil) return;
+
+  setSlider('sp', d.sp);
+  setSlider('pw', d.pwr);
+  setSlider('ct', d.cut);
+}
+
+function setSlider(id, v) {
+  var sl = document.getElementById('sl-' + id);
+  if (parseInt(sl.value, 10) !== v) sl.value = v;
+  document.getElementById('sv-' + id).textContent = v;
+}
+
+function renderLog(lines) {
+  if (!lines) return;
+  if (lines.length === logLines && logLines > 0) return;
+  var el = document.getElementById('log');
+  el.textContent = lines.join('\n');
+  logLines = lines.length;
+  el.scrollTop = el.scrollHeight;
+}
+
+/* ─── график ─── */
+
+var _cW = 0, _cH = 0;
+var DPR = Math.min(window.devicePixelRatio || 1, 2);
+
+function drawScope() {
+  var canvas = document.getElementById('scope');
+  var wrap = document.getElementById('scope-wrap');
+  var W = Math.round(wrap.offsetWidth * DPR);
+  var H = Math.round(wrap.offsetHeight * DPR);
+  if (W <= 0 || H <= 0) return;
+  if (W !== _cW || H !== _cH) { _cW = W; _cH = H; canvas.width = W; canvas.height = H; }
+
+  var ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#020208';
+  ctx.fillRect(0, 0, W, H);
+
+  /* сетка как в осциллографе pwmgen */
+  ctx.strokeStyle = '#0a1020';
+  ctx.lineWidth = 1;
+  var gx = 10, gy = 7;
+  for (var i = 0; i <= gx; i++) {
+    var x = Math.round(i * W / gx) + 0.5;
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+  }
+  for (var j = 0; j <= gy; j++) {
+    var y = Math.round(j * H / gy) + 0.5;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+
+  /* подписи шкалы 0..280 °C */
+  ctx.fillStyle = '#1f2b45';
+  ctx.font = (9 * DPR) + 'px monospace';
+  for (var k = 1; k < gy; k++) {
+    var t = TMAX - (TMAX - TMIN) * k / gy;
+    ctx.fillText(Math.round(t) + '', 3 * DPR, k * H / gy - 2 * DPR);
+  }
+
+  trace(ctx, hP2, '#ffc300', W, H);
+  trace(ctx, hP1, '#00ffee', W, H);
+  trace(ctx, hRed, '#ff3333', W, H);
+}
+
+/* null рисуем разрывом линии, а не нулём, ТЗ 5.3 */
+function trace(ctx, arr, color, W, H) {
+  if (arr.length < 2) return;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2 * DPR;
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+
+  var step = W / (HIST - 1);
+  var offset = HIST - arr.length;   /* старые точки уезжают влево */
+  var pen = false;
+
+  for (var i = 0; i < arr.length; i++) {
+    var v = arr[i];
+    if (v === null) { pen = false; continue; }
+    var x = (offset + i) * step;
+    var c = v < TMIN ? TMIN : (v > TMAX ? TMAX : v);
+    var y = H - (c - TMIN) / (TMAX - TMIN) * H;
+    if (!pen) { ctx.moveTo(x, y); pen = true; }
+    else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+}
+
+/* ═══════════════ УПРАВЛЕНИЕ ═══════════════ */
+
+function selectPanel(name) {
+  panel = name;
+  var ids = ['sens', 'set', 'log'];
+  for (var i = 0; i < ids.length; i++) {
+    var on = ids[i] === name;
+    document.getElementById('btn-' + ids[i]).className = on ? 'sb-btn active' : 'sb-btn';
+    document.getElementById('panel-' + ids[i]).className = on ? 'panel show' : 'panel';
+  }
+  setTimeout(drawScope, 0);
+}
+
+function bindSlider(id, unit) {
+  var sl = document.getElementById('sl-' + id);
+  var lbl = document.getElementById('sv-' + id);
+
+  function live() {
+    lbl.textContent = sl.value;      /* значение обновляется мгновенно */
+    dragging = true;
+    holdUntil = Date.now() + HOLD_MS;
+  }
+  function release() {
+    dragging = false;
+    holdUntil = Date.now() + HOLD_MS;
+    sendParams();                    /* на плату — только по отпусканию, ТЗ 5.5 */
+  }
+
+  sl.addEventListener('input', live, false);
+  sl.addEventListener('touchstart', live, false);
+  sl.addEventListener('change', release, false);
+  sl.addEventListener('touchend', release, false);
+  sl.addEventListener('mouseup', release, false);
+}
+
+function sendParams() {
+  var b = bridge();
+  if (!b) return;
+  b.setParams(
+    parseInt(document.getElementById('sl-sp').value, 10),
+    parseInt(document.getElementById('sl-pw').value, 10),
+    parseInt(document.getElementById('sl-ct').value, 10)
+  );
+}
+
+function onResetTap() {
+  if (!last || !last.latched) return;   /* неактивна, когда аварии нет, ТЗ 5.6 */
+  var b = bridge();
+  if (b) b.resetFault();
+}
+
+function rescan() {
+  var b = bridge();
+  if (b) b.rescan();
+  document.getElementById('finder-spin').style.visibility = 'visible';
+}
+
+function askIp() {
+  var b = bridge();
+  if (b) b.askIp();
+}
+
+function onConnTap() {
+  if (!online) rescan();
+  else askIp();
+}
+
+var lpTimer = null;
+function startLongPress() {
+  lpTimer = setTimeout(askIp, 700);
+}
+function cancelLongPress() {
+  if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; }
+}
+
+var toastTimer = null;
+function toast(msg) {
+  var t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show';
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(function () { t.className = 'toast'; }, 3500);
+}
+
+/* ═══════════════ СТАРТ ═══════════════ */
+
+bindSlider('sp');
+bindSlider('pw');
+bindSlider('ct');
+
+window.addEventListener('resize', function () { setTimeout(drawScope, 50); }, false);
+window.addEventListener('orientationchange', function () { setTimeout(drawScope, 250); }, false);
+drawScope();
+</script>
+
+</body>
+</html>
