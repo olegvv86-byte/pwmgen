@@ -34,10 +34,6 @@
    3. Делитель бортсети калибруется без перепрошивки.
       GET /cal?v=12.67 — сказать плате, сколько на самом деле показывает
       тестер, она сама пересчитает divK и сохранит в NVS.
-
-   4. Полярность реле переключается на ходу.
-      GET /set?rinv=1 — для модулей, срабатывающих по низкому уровню.
-      Тоже в NVS, применяется сразу.
    ===================================================================== */
 
 #include <WiFi.h>
@@ -103,11 +99,6 @@ const float EMA_K = 0.2;
 // четверть. Значение калибруется через /cal?v=<по тестеру> и живёт в NVS.
 float divK = 5.11;
 const float DIVK_MIN = 1.0, DIVK_MAX = 20.0;
-
-/* Полярность управления реле. Модули с оптронной развязкой сплошь и рядом
-   срабатывают по низкому уровню: вход притянут к земле — реле включено.
-   Хранится в NVS, переключается через /set?rinv=1, перепрошивать не надо. */
-bool relayInv = false;
 
 // Выше этого вывода АЦП ESP32 при 11 dB уходит из линейной зоны и занижает.
 // 2,45 В × divK ≈ 12,5 В — всё, что выше, читается с погрешностью.
@@ -254,13 +245,9 @@ void readAll() { readSensor(S3); readSensor(S4); readSensor(SR); readVbat(); }
 
 void setRelay(bool on) {
   if (relayOn == on) return;
-  relayOn = on; digitalWrite(PIN_RELAY, relayInv ? !on : on);
+  relayOn = on; digitalWrite(PIN_RELAY, on);
   addLog(on ? "реле K1 замкнуто" : "реле K1 разомкнуто");
 }
-
-/* Привести вывод к текущему «разомкнуто»: при смене полярности на лету
-   уровень надо переложить сразу, иначе реле залипнет в прежнем состоянии. */
-void applyRelayLevel() { digitalWrite(PIN_RELAY, relayInv ? !relayOn : relayOn); }
 
 void checkProtections() {
   uint32_t now = millis();
@@ -423,7 +410,6 @@ void saveSettings() {
   prefs.putUChar("pwr", dutyMax);
   prefs.putFloat("cut", redOff);
   prefs.putFloat("divk", divK);
-  prefs.putBool("rinv", relayInv);
 }
 
 // ------------------------- Панель -------------------------------------
@@ -567,7 +553,6 @@ void handleApi() {
   j += ",\"pwr\":"  + String(dutyMax);
   j += ",\"cut\":"  + String((int)redOff);
   j += ",\"relay\":"   + String(relayOn ? "true" : "false");
-  j += ",\"rinv\":"    + String(relayInv ? "true" : "false");
   j += ",\"warm\":"    + String(warmedUp ? "true" : "false");
   j += ",\"uv\":"      + String(uvBlock ? "true" : "false");
   j += ",\"latched\":" + String(faultLatched ? "true" : "false");
@@ -596,14 +581,6 @@ void handleSet() {
   if (server.hasArg("ct")) {
     float v = constrain(server.arg("ct").toFloat(), 40.0f, 80.0f);
     if (v != redOff) { redOff = v; redOn = v - 10.0; ch = true; }
-  }
-  if (server.hasArg("rinv")) {
-    bool v = server.arg("rinv").toInt() != 0;
-    if (v != relayInv) {
-      relayInv = v; ch = true;
-      applyRelayLevel();
-      addLog(relayInv ? "реле: управление низким уровнем" : "реле: управление высоким уровнем");
-    }
   }
   if (ch) {
     saveSettings();
@@ -651,9 +628,7 @@ void setup() {
   dutyMax = prefs.getUChar("pwr", 80);
   redOff  = prefs.getFloat("cut", 60.0);
   redOn   = redOff - 10.0;
-  divK     = prefs.getFloat("divk", divK);
-  relayInv = prefs.getBool("rinv", false);
-  applyRelayLevel();   // полярность известна только сейчас, разомкнуть по-настоящему
+  divK    = prefs.getFloat("divk", divK);
 
 #if ESP_IDF_VERSION_MAJOR >= 5
   esp_task_wdt_config_t wcfg = { .timeout_ms = 5000, .idle_core_mask = 0, .trigger_panic = true };
