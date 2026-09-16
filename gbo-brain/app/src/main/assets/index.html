@@ -92,11 +92,61 @@ body {
 /* ═══ MAIN ═══ */
 .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; }
 
-/* ═══ SCOPE ═══ */
+/* ═══ СТОЛБЦЫ ТЕМПЕРАТУР ═══ */
 .scope-wrap { flex: 1; position: relative; overflow: hidden; min-height: 110px; }
-canvas#scope { position: absolute; left:0; top:0; width: 100%; height: 100%; }
 
-/* статусная плашка поверх графика — как top-bar в pwmgen */
+.bars {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  top: 27px;                      /* под плашкой состояния */
+  display: flex; gap: 5px;
+  padding: 5px 6px 0;
+}
+.bar {
+  flex: 1; position: relative; min-width: 0;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  overflow: hidden;
+}
+/* заливка растёт снизу, как в эквалайзере.
+   Плавность включается только со второго кадра: на первом заливка ехала бы
+   от нуля, а число уже стояло бы на своём месте — чёрным по тёмному. */
+.bar-fill {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  height: 0;
+}
+/* Данные приходят раз в секунду. Ход чуть короче периода опроса и линейный —
+   тогда столбец едет непрерывно, а не дёргается ступенькой раз в секунду. */
+.bars.anim .bar-fill { transition: height 0.9s linear; }
+.bars.anim .bar-num  { transition: bottom 0.9s linear; }
+/* число едет вместе с верхушкой столбца */
+.bar-num {
+  position: absolute; left: 0; right: 0;
+  text-align: center;
+  font-size: 30px; font-weight: bold; line-height: 1;
+  color: #040408;                 /* чёрным по цветному */
+  pointer-events: none;
+  white-space: nowrap;
+}
+/* столбец ниже высоты цифр — число садится над заливкой и красится в цвет канала */
+.bar-num.above { color: inherit; }
+/* подложка под подписью: заливка доходит до низа и съедала бы её */
+.bar-cap {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  text-align: center; font-size: 9px; letter-spacing: 1px;
+  padding: 2px 0 3px;
+  color: var(--dim); background: rgba(4, 4, 8, 0.8);
+  pointer-events: none;
+}
+.bar-adc {
+  position: absolute; left: 0; right: 0; top: 3px;
+  text-align: center; font-size: 8px;
+  color: #1f2b45; pointer-events: none;
+}
+@media (max-height: 430px) { .bar-num { font-size: 22px; } }
+@media (max-height: 330px) { .bar-num { font-size: 17px; } }
+
+/* статусная плашка поверх столбцов — как top-bar в pwmgen */
 .state-bar {
   position: absolute;
   top: 0; left: 0; right: 0;
@@ -116,16 +166,6 @@ canvas#scope { position: absolute; left:0; top:0; width: 100%; height: 100%; }
 .state-bar.run  { background: #041a10; color: var(--green); }
 .state-bar.warn { background: #1a1400; color: var(--yellow); }
 .state-bar.err  { background: #2a0808; color: var(--red); }
-
-/* легенда графика */
-.legend {
-  position: absolute;
-  bottom: 2px; left: 6px;
-  display: flex; gap: 10px;
-  font-size: 9px; color: var(--dim);
-  z-index: 5;
-}
-.legend i { display:inline-block; width:14px; height:3px; margin-right:3px; vertical-align:middle; }
 
 /* ═══ CONTROLS ═══ */
 .ctrl { background: var(--panel); border-top: 1px solid var(--border); padding: 5px 6px; }
@@ -196,7 +236,7 @@ input[type=range].yellow::-webkit-slider-thumb { background: var(--yellow); box-
 /* приглушение всех показаний, пока связи нет */
 .stale .c-val, .stale .c-sub, .stale .state-bar,
 .stale #sv-sp, .stale #sv-pw, .stale #sv-ct { opacity: 0.4; }
-.stale canvas#scope { opacity: 0.4; }
+.stale .bar-fill, .stale .bar-num, .stale .bar-adc { opacity: 0.4; }
 
 /* ═══ ЭКРАН «ПЛАТА НЕ НАЙДЕНА» ═══ */
 .finder {
@@ -259,14 +299,28 @@ input[type=range].yellow::-webkit-slider-thumb { background: var(--yellow); box-
 <!-- MAIN -->
 <div class="main" id="main">
 
-  <!-- ГРАФИК -->
+  <!-- СТОЛБЦЫ ТЕМПЕРАТУР -->
   <div class="scope-wrap" id="scope-wrap">
-    <canvas id="scope"></canvas>
     <div class="state-bar warn" id="state-bar">ОЖИДАНИЕ</div>
-    <div class="legend">
-      <span><i style="background:#ff3333"></i>РЕДУКТОР</span>
-      <span><i style="background:#00ffee"></i>ПЛАСТИНА 1</span>
-      <span><i style="background:#ffc300"></i>ПЛАСТИНА 2</span>
+    <div class="bars">
+      <div class="bar" id="bar-red" style="color:var(--red)">
+        <div class="bar-fill" style="background:var(--red)"></div>
+        <div class="bar-adc">ADC ----</div>
+        <div class="bar-num">--</div>
+        <div class="bar-cap">РЕДУКТОР</div>
+      </div>
+      <div class="bar" id="bar-p1" style="color:var(--cyan)">
+        <div class="bar-fill" style="background:var(--cyan)"></div>
+        <div class="bar-adc">ADC ----</div>
+        <div class="bar-num">--</div>
+        <div class="bar-cap">ПЛАСТИНА 1</div>
+      </div>
+      <div class="bar" id="bar-p2" style="color:var(--yellow)">
+        <div class="bar-fill" style="background:var(--yellow)"></div>
+        <div class="bar-adc">ADC ----</div>
+        <div class="bar-num">--</div>
+        <div class="bar-cap">ПЛАСТИНА 2</div>
+      </div>
     </div>
   </div>
 
@@ -275,23 +329,6 @@ input[type=range].yellow::-webkit-slider-thumb { background: var(--yellow); box-
 
     <!-- показания -->
     <div class="panel show" id="panel-sens">
-      <div class="cards">
-        <div class="card">
-          <div class="c-ttl">РЕДУКТОР</div>
-          <div class="c-val" id="v-red" style="color:var(--red)">--</div>
-          <div class="c-sub" id="v-rawR">ADC ----</div>
-        </div>
-        <div class="card">
-          <div class="c-ttl">ПЛАСТИНА 1</div>
-          <div class="c-val" id="v-p1" style="color:var(--cyan)">--</div>
-          <div class="c-sub" id="v-raw1">ADC ----</div>
-        </div>
-        <div class="card">
-          <div class="c-ttl">ПЛАСТИНА 2</div>
-          <div class="c-val" id="v-p2" style="color:var(--yellow)">--</div>
-          <div class="c-sub" id="v-raw2">ADC ----</div>
-        </div>
-      </div>
       <div class="cards">
         <div class="card">
           <div class="c-ttl">БОРТСЕТЬ</div>
@@ -361,10 +398,13 @@ input[type=range].yellow::-webkit-slider-thumb { background: var(--yellow); box-
 <script>
 /* ═══════════════ СОСТОЯНИЕ ═══════════════ */
 
-var HIST = 300;          /* 300 точек по секунде — пять минут истории, ТЗ 5.3 */
-var TMIN = 0, TMAX = 280;
+var TMIN = 0, TMAX = 280;   /* шкала столбцов, как была у графика */
 
-var hRed = [], hP1 = [], hP2 = [];
+/* Ниже этой температуры канал упирается в потолок АЦП и настоящего значения
+   не даёт: подтяжка 2,2 к на пластинах, 22 к на редукторе. Показываем границу
+   со знаком «меньше» — это честнее выдуманной цифры. */
+var COLD_FLOOR = { red: -3, p1: 47, p2: 47 };
+
 var last = null;
 var online = false;
 var panel = 'sens';
@@ -425,12 +465,7 @@ function setLink(up, text) {
 /* onApi(obj) — разобранный /api, объект приходит готовым из evaluateJavascript */
 window.onApi = function (d) {
   last = d;
-
-  push(hRed, d.red);
-  push(hP1, d.p1);
-  push(hP2, d.p2);
-
-  drawScope();
+  renderBars(d);
   renderState(d);
   renderCards(d);
   renderSetpoints(d);
@@ -449,12 +484,60 @@ window.onSetDone = function (ok) {
   if (!ok) toast('Уставки не доехали до платы');
 };
 
-function push(arr, v) {
-  arr.push((v === null || v === undefined) ? null : v);
-  while (arr.length > HIST) arr.shift();
+/* ═══════════════ ОТРИСОВКА ═══════════════ */
+
+/* Столбец: заливка растёт снизу по температуре, число едет вместе с её
+   верхушкой. Пока столбец ниже высоты цифр, число не влезает внутрь —
+   сажаем его над заливкой и красим в цвет канала, иначе чёрное по чёрному. */
+function setBar(id, v, isCold, floor, adc) {
+  var box   = document.getElementById(id);
+  var fill  = box.querySelector('.bar-fill');
+  var num   = box.querySelector('.bar-num');
+  var adcEl = box.querySelector('.bar-adc');
+
+  adcEl.textContent = (adc === undefined || adc === null) ? '' : ('ADC ' + adc);
+
+  var known = (v !== null && v !== undefined);
+  var t = known ? v : (isCold ? floor : TMIN);
+
+  var pct = (t - TMIN) / (TMAX - TMIN) * 100;
+  if (pct < 0) pct = 0;
+  if (pct > 100) pct = 100;
+
+  fill.style.height = pct + '%';
+  num.textContent = known ? v.toFixed(1) : (isCold ? '<' + floor : '--');
+
+  var h = box.clientHeight || 1;
+  var fillPx = h * pct / 100;
+  var numH = num.offsetHeight || 30;
+
+  var CAP_H = 17;   /* высота подписи снизу, число под неё не заезжает */
+  if (fillPx >= numH + CAP_H + 6) {
+    num.className = 'bar-num';
+    num.style.bottom = (fillPx - numH - 4) + 'px';
+  } else {
+    num.className = 'bar-num above';
+    num.style.bottom = Math.max(fillPx + 4, CAP_H + 2) + 'px';
+  }
 }
 
-/* ═══════════════ ОТРИСОВКА ═══════════════ */
+var barsAnim = false;
+
+function renderBars(d) {
+  var cold = d.cold || [0, 0, 0];   /* [пластина 1, пластина 2, редуктор] */
+  setBar('bar-red', d.red, cold[2], COLD_FLOOR.red, d.rawR);
+  setBar('bar-p1',  d.p1,  cold[0], COLD_FLOOR.p1,  d.raw1);
+  setBar('bar-p2',  d.p2,  cold[1], COLD_FLOOR.p2,  d.raw2);
+
+  /* первый кадр ставим без анимации, дальше уже плавно */
+  if (!barsAnim) {
+    barsAnim = true;
+    setTimeout(function () {
+      var b = document.querySelector('.bars');
+      if (b) b.className = 'bars anim';
+    }, 60);
+  }
+}
 
 function renderState(d) {
   var bar = document.getElementById('state-bar');
@@ -484,22 +567,7 @@ function t1(v) {
   return (v === null || v === undefined) ? '--' : v.toFixed(1);
 }
 
-/* Холодный датчик приходит как null, но это не поломка: термистор ушёл ниже
-   диапазона канала. Прошивка помечает такие в массиве cold. */
-function tc(v, isCold) {
-  if (v !== null && v !== undefined) return v.toFixed(1);
-  return isCold ? 'ХОЛОД' : '--';
-}
-
 function renderCards(d) {
-  var cold = d.cold || [0, 0, 0];   /* [пластина 1, пластина 2, редуктор] */
-  document.getElementById('v-red').textContent = tc(d.red, cold[2]);
-  document.getElementById('v-p1').textContent = tc(d.p1, cold[0]);
-  document.getElementById('v-p2').textContent = tc(d.p2, cold[1]);
-  document.getElementById('v-rawR').textContent = 'ADC ' + d.rawR;
-  document.getElementById('v-raw1').textContent = 'ADC ' + d.raw1;
-  document.getElementById('v-raw2').textContent = 'ADC ' + d.raw2;
-
   document.getElementById('v-vbat').textContent = t1(d.vbat) + ' В';
   document.getElementById('v-rawV').textContent =
     (d.rawV === undefined) ? '' : ('ADC ' + d.rawV + ' · ' + d.mvV + ' мВ');
@@ -540,73 +608,6 @@ function renderLog(lines) {
   el.scrollTop = el.scrollHeight;
 }
 
-/* ─── график ─── */
-
-var _cW = 0, _cH = 0;
-var DPR = Math.min(window.devicePixelRatio || 1, 2);
-
-function drawScope() {
-  var canvas = document.getElementById('scope');
-  var wrap = document.getElementById('scope-wrap');
-  var W = Math.round(wrap.offsetWidth * DPR);
-  var H = Math.round(wrap.offsetHeight * DPR);
-  if (W <= 0 || H <= 0) return;
-  if (W !== _cW || H !== _cH) { _cW = W; _cH = H; canvas.width = W; canvas.height = H; }
-
-  var ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#020208';
-  ctx.fillRect(0, 0, W, H);
-
-  /* сетка как в осциллографе pwmgen */
-  ctx.strokeStyle = '#0a1020';
-  ctx.lineWidth = 1;
-  var gx = 10, gy = 7;
-  for (var i = 0; i <= gx; i++) {
-    var x = Math.round(i * W / gx) + 0.5;
-    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
-  }
-  for (var j = 0; j <= gy; j++) {
-    var y = Math.round(j * H / gy) + 0.5;
-    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
-  }
-
-  /* подписи шкалы 0..280 °C */
-  ctx.fillStyle = '#1f2b45';
-  ctx.font = (9 * DPR) + 'px monospace';
-  for (var k = 1; k < gy; k++) {
-    var t = TMAX - (TMAX - TMIN) * k / gy;
-    ctx.fillText(Math.round(t) + '', 3 * DPR, k * H / gy - 2 * DPR);
-  }
-
-  trace(ctx, hP2, '#ffc300', W, H);
-  trace(ctx, hP1, '#00ffee', W, H);
-  trace(ctx, hRed, '#ff3333', W, H);
-}
-
-/* null рисуем разрывом линии, а не нулём, ТЗ 5.3 */
-function trace(ctx, arr, color, W, H) {
-  if (arr.length < 2) return;
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 2 * DPR;
-  ctx.lineJoin = 'round';
-  ctx.beginPath();
-
-  var step = W / (HIST - 1);
-  var offset = HIST - arr.length;   /* старые точки уезжают влево */
-  var pen = false;
-
-  for (var i = 0; i < arr.length; i++) {
-    var v = arr[i];
-    if (v === null) { pen = false; continue; }
-    var x = (offset + i) * step;
-    var c = v < TMIN ? TMIN : (v > TMAX ? TMAX : v);
-    var y = H - (c - TMIN) / (TMAX - TMIN) * H;
-    if (!pen) { ctx.moveTo(x, y); pen = true; }
-    else ctx.lineTo(x, y);
-  }
-  ctx.stroke();
-}
-
 /* ═══════════════ УПРАВЛЕНИЕ ═══════════════ */
 
 function selectPanel(name) {
@@ -617,7 +618,13 @@ function selectPanel(name) {
     document.getElementById('btn-' + ids[i]).className = on ? 'sb-btn active' : 'sb-btn';
     document.getElementById('panel-' + ids[i]).className = on ? 'panel show' : 'panel';
   }
-  setTimeout(drawScope, 0);
+  /* высота столбцов поменялась — пересчитать положение цифр */
+  setTimeout(redrawBars, 0);
+}
+
+/* перерисовать столбцы по последним данным: после смены панели и поворота */
+function redrawBars() {
+  if (last) renderBars(last);
 }
 
 function bindSlider(id, unit) {
@@ -697,9 +704,8 @@ bindSlider('sp');
 bindSlider('pw');
 bindSlider('ct');
 
-window.addEventListener('resize', function () { setTimeout(drawScope, 50); }, false);
-window.addEventListener('orientationchange', function () { setTimeout(drawScope, 250); }, false);
-drawScope();
+window.addEventListener('resize', function () { setTimeout(redrawBars, 50); }, false);
+window.addEventListener('orientationchange', function () { setTimeout(redrawBars, 250); }, false);
 </script>
 
 </body>
