@@ -284,6 +284,83 @@ input[type=range].yellow::-webkit-slider-thumb { background: var(--yellow); box-
 .f-btn.ghost { color: var(--dim); }
 .spin { font-size: 10px; color: var(--cyan); letter-spacing: 2px; }
 
+/* ═══ ОКНА ═══ */
+.win {
+  position: fixed; left: 0; top: 0; right: 0; bottom: 0;
+  background: var(--bg); z-index: 90;
+  display: none; flex-direction: column;
+}
+.win.show { display: flex; }
+.win-tabs {
+  display: flex; align-items: center; gap: 4px;
+  padding: 5px 6px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.win-tab {
+  flex: 1; text-align: center;
+  padding: 7px 2px;
+  font-size: 9px; letter-spacing: 1px;
+  color: var(--dim);
+  border: 1px solid var(--border); border-radius: 5px;
+  background: var(--card); cursor: pointer;
+}
+.win-tab.on { color: var(--blue); border-color: var(--blue); background: #001a33; }
+.win-x {
+  width: 34px; height: 30px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--dim); font-size: 15px; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 5px; background: var(--card);
+}
+.win-body { display: none; flex: 1; overflow-y: auto; padding: 10px 12px; }
+.win-body.show { display: block; }
+
+/* ─ готовность ─ */
+#wb-ready { display: none; text-align: center; }
+#wb-ready.show { display: flex; flex-direction: column; justify-content: center; }
+.rd-state {
+  font-size: 30px; font-weight: bold; letter-spacing: 3px;
+  color: var(--yellow); line-height: 1.2;
+}
+.rd-state.ok  { color: var(--green); }
+.rd-state.err { color: var(--red); }
+.rd-eta { font-size: 15px; color: var(--text); margin-top: 8px; min-height: 20px; }
+.rd-nums { display: flex; justify-content: center; gap: 34px; margin-top: 18px; }
+.rd-nums span { display: block; font-size: 26px; color: var(--red); }
+.rd-nums div:last-child span { color: var(--dim); }
+.rd-nums b { display: block; font-size: 8px; color: var(--dim); letter-spacing: 1px; font-weight: normal; }
+/* width задан явно: в колоночном flex margin auto отменяет растягивание,
+   а своего содержимого у полосы нет — она схлопывалась в ноль */
+.rd-track {
+  height: 10px; background: var(--border); border-radius: 5px;
+  margin: 18px auto 0; width: 100%; max-width: 460px; overflow: hidden;
+}
+.rd-track i { display: block; height: 100%; width: 0; background: var(--red); }
+@media (max-height: 330px) { .rd-state { font-size: 22px; } .rd-nums { margin-top: 10px; } }
+
+/* ─ аварии ─ */
+.wf-now {
+  font-size: 14px; padding: 12px; border-radius: 5px;
+  background: #041a10; color: var(--green); border: 1px solid #0d3a22;
+}
+.wf-now.bad { background: #2a0808; color: var(--red); border-color: #5a1414; }
+.wf-last { font-size: 12px; color: var(--text); margin: 10px 0; line-height: 1.6; }
+.wf-log {
+  background: var(--card); border: 1px solid var(--border); border-radius: 5px;
+  padding: 6px 8px; font-size: 10px; line-height: 1.5; color: var(--text);
+  white-space: pre-wrap;
+}
+
+/* ─ статистика ─ */
+.ws-row {
+  display: flex; justify-content: space-between; align-items: baseline;
+  padding: 9px 2px; border-bottom: 1px solid var(--border);
+}
+.ws-row b { font-size: 11px; color: var(--text); font-weight: normal; }
+.ws-row span { font-size: 17px; color: var(--yellow); }
+.ws-note { font-size: 10px; color: var(--dim); margin-top: 12px; line-height: 1.6; }
+
 /* тост вместо Toast — Android-диалоги не нужны ради одной строки */
 .toast {
   position: fixed; left: 50%; bottom: 14px;
@@ -316,6 +393,14 @@ input[type=range].yellow::-webkit-slider-thumb { background: var(--yellow); box-
   </div>
   <div class="sb-btn" id="btn-log" onclick="selectPanel('log')">
     <span>LOG</span><sub>ЖУРН</sub>
+  </div>
+  <div class="sb-btn" id="btn-win" onclick="nextWindow()" title="Окна: готовность, аварии, статистика">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="1.7" stroke-linejoin="round">
+      <rect x="2.5" y="4" width="13" height="10" rx="1.5"/>
+      <rect x="8.5" y="10" width="13" height="10" rx="1.5"/>
+    </svg>
+    <sub>ОКНА</sub>
   </div>
   <div class="sb-sep"></div>
   <div class="sb-btn alarm off" id="btn-reset" onclick="onResetTap()">
@@ -465,6 +550,45 @@ input[type=range].yellow::-webkit-slider-thumb { background: var(--yellow); box-
   <button class="f-btn ghost" onclick="askIp()">ВВЕСТИ АДРЕС ВРУЧНУЮ</button>
 </div>
 
+<!-- ОКНА: готовность, аварии, статистика -->
+<div class="win" id="win">
+  <div class="win-tabs">
+    <span class="win-tab" id="wt-ready" onclick="showWindow('ready')">ГОТОВНОСТЬ</span>
+    <span class="win-tab" id="wt-faults" onclick="showWindow('faults')">АВАРИИ</span>
+    <span class="win-tab" id="wt-stats" onclick="showWindow('stats')">СТАТИСТИКА</span>
+    <span class="win-x" onclick="closeWindow()">✕</span>
+  </div>
+
+  <!-- готовность к запуску -->
+  <div class="win-body" id="wb-ready">
+    <div class="rd-state" id="rd-state">ОЖИДАНИЕ</div>
+    <div class="rd-eta" id="rd-eta"></div>
+    <div class="rd-nums">
+      <div><span id="rd-red">--</span><b>РЕДУКТОР</b></div>
+      <div><span id="rd-cut">--</span><b>НУЖНО</b></div>
+    </div>
+    <div class="rd-track"><i id="rd-fill"></i></div>
+  </div>
+
+  <!-- аварии -->
+  <div class="win-body" id="wb-faults">
+    <div class="wf-now" id="wf-now">Сейчас аварий нет</div>
+    <div class="wf-last" id="wf-last"></div>
+    <div class="wf-log" id="wf-log"></div>
+  </div>
+
+  <!-- статистика -->
+  <div class="win-body" id="wb-stats">
+    <div class="ws-row"><b>Прогревов всего</b><span id="ws-runs">--</span></div>
+    <div class="ws-row"><b>Нагрев суммарно</b><span id="ws-secs">--</span></div>
+    <div class="ws-row"><b>Последний до готовности</b><span id="ws-rdyl">--</span></div>
+    <div class="ws-row"><b>В среднем до готовности</b><span id="ws-rdya">--</span></div>
+    <div class="ws-row"><b>Плата на ходу</b><span id="ws-up">--</span></div>
+    <div class="ws-note">Если время до готовности месяц за месяцем растёт — стоит
+      посмотреть ТЭН, контакты и питание.</div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -551,6 +675,8 @@ window.onApi = function (d) {
   renderCards(d);
   renderSetpoints(d);
   renderLog(d.log);
+  autoWindow(d);
+  renderWindow(d);
 };
 
 window.onReset = function (res) {
@@ -764,6 +890,200 @@ function sendParams() {
     parseInt(document.getElementById('sl-pw').value, 10),
     parseInt(document.getElementById('sl-ct').value, 10)
   );
+}
+
+/* ═══════════════ ОКНА ═══════════════ */
+
+/* Текущая авария приходит с текстом, а запомненная — одним кодом.
+   Коды заданы в прошивке в faultText(), держим их здесь же. */
+var FAULT_TEXT = {
+  1: 'датчик RT3 (пластина 1)',
+  2: 'датчик RT4 (пластина 2)',
+  3: 'датчик RT2 (редуктор)',
+  4: 'расхождение датчиков пластин',
+  5: 'перегрев пластин',
+  6: 'нет роста температуры',
+  7: 'таймаут 15 минут',
+  8: 'аккумулятор разряжен',
+  9: 'перенапряжение бортсети',
+  10: 'канал бортсети в насыщении'
+};
+
+var winNow = '';            /* '' — закрыто */
+var WIN_ORDER = ['ready', 'faults', 'stats'];
+var winAuto = false;        /* окно открылось само, при начале прогрева */
+
+function showWindow(name) {
+  winNow = name;
+  document.getElementById('win').className = 'win show';
+  for (var i = 0; i < WIN_ORDER.length; i++) {
+    var n = WIN_ORDER[i], on = (n === name);
+    document.getElementById('wt-' + n).className = on ? 'win-tab on' : 'win-tab';
+    document.getElementById('wb-' + n).className = on ? 'win-body show' : 'win-body';
+  }
+  document.getElementById('btn-win').className = 'sb-btn active';
+  if (last) renderWindow(last);
+}
+
+function closeWindow() {
+  winNow = '';
+  winAuto = false;
+  document.getElementById('win').className = 'win';
+  document.getElementById('btn-win').className = 'sb-btn';
+}
+
+/* Кнопка листает окна по кругу, четвёртое нажатие закрывает */
+function nextWindow() {
+  if (!winNow) { showWindow('ready'); return; }
+  var i = WIN_ORDER.indexOf(winNow);
+  if (i < 0 || i === WIN_ORDER.length - 1) closeWindow();
+  else showWindow(WIN_ORDER[i + 1]);
+}
+
+/* ─── сколько ещё ждать ───
+   Плата время не считает, считаем здесь: копим последние отсчёты температуры
+   редуктора и смотрим, с какой скоростью он растёт. Прикидка грубая, но
+   понять «полминуты или три» позволяет. */
+var rdHist = [];
+var RD_WINDOW_MS = 30000;
+
+function etaSeconds(red, cut) {
+  var t = Date.now();
+  if (red === null || red === undefined) { rdHist = []; return -1; }
+
+  rdHist.push({ t: t, v: red });
+  while (rdHist.length > 1 && t - rdHist[0].t > RD_WINDOW_MS) rdHist.shift();
+  if (rdHist.length < 4) return -1;
+
+  var first = rdHist[0];
+  var dt = (t - first.t) / 1000;
+  if (dt < 5) return -1;
+
+  var rate = (red - first.v) / dt;          /* градусов в секунду */
+  if (rate < 0.02) return -1;               /* стоит или остывает — не гадаем */
+
+  var left = (cut - red) / rate;
+  if (left < 0) return 0;
+  if (left > 3600) return -1;
+  return Math.round(left);
+}
+
+function mmss(s) {
+  if (s === null || s === undefined || s < 0) return '--';
+  var m = Math.floor(s / 60), r = s % 60;
+  return m + ':' + (r < 10 ? '0' : '') + r;
+}
+
+/* Для статистики пишем словами: в одном столбце соседствуют часы и секунды,
+   и «2:34» рядом с «2:15» читается как одно и то же, хотя это разное. */
+function dur(s) {
+  if (!s) return '--';
+  var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = s % 60;
+  if (h) return h + ' ч ' + m + ' мин';
+  if (m) return m + ' мин ' + r + ' с';
+  return r + ' с';
+}
+
+var prevState = -1, readyAt = 0;
+
+/* Окно готовности вылезает само, когда плата пошла греть: в холодной машине
+   не надо искать кнопку. Само и уберётся, когда прогрелось и вы это увидели.
+   Если окно открыли руками — не трогаем, закроете сами. */
+function autoWindow(d) {
+  var heating = (d.state === 1 || d.state === 2);
+
+  if (heating && prevState !== 1 && prevState !== 2 && !winNow) {
+    winAuto = true;
+    showWindow('ready');
+  }
+  prevState = d.state;
+
+  if (winAuto && winNow === 'ready' && d.warm) {
+    if (!readyAt) readyAt = Date.now();
+    else if (Date.now() - readyAt > 15000) { readyAt = 0; closeWindow(); }
+  } else if (!d.warm) {
+    readyAt = 0;
+  }
+}
+
+function renderWindow(d) {
+  if (!winNow) return;
+  if (winNow === 'ready') renderReady(d);
+  else if (winNow === 'faults') renderFaults(d);
+  else renderStats(d);
+}
+
+function renderReady(d) {
+  var st = document.getElementById('rd-state');
+  var eta = document.getElementById('rd-eta');
+  var cls = 'rd-state', txt = 'ОЖИДАНИЕ', sub = '';
+
+  var on = (d.en === undefined) ? true : !!d.en;
+  var red = (d.red === null || d.red === undefined) ? null : d.red;
+
+  if (d.latched) {
+    cls = 'rd-state err';
+    txt = 'АВАРИЯ ' + d.fault;
+    sub = String(d.ftext || '');
+  } else if (!on) {
+    txt = 'ВЫКЛЮЧЕНО';
+    sub = 'Нажмите Power, чтобы плата начала работу';
+  } else if (d.warm) {
+    cls = 'rd-state ok';
+    txt = 'МОЖНО ЗАВОДИТЬ';
+    sub = 'Редуктор прогрет';
+  } else if (d.uv) {
+    txt = 'ПРОСАДКА';
+    sub = 'Нагрев снят до восстановления бортсети';
+  } else if (d.state === 1 || d.state === 2) {
+    txt = 'ЖДИТЕ';
+    var left = etaSeconds(red, d.cut);
+    sub = (left < 0) ? 'идёт прогрев' : ('готов через ' + mmss(left));
+  } else {
+    sub = 'нагрев не идёт';
+  }
+
+  st.className = cls;
+  st.textContent = txt;
+  eta.textContent = sub;
+
+  document.getElementById('rd-red').textContent = (red === null) ? '--' : red.toFixed(1);
+  document.getElementById('rd-cut').textContent = d.cut;
+
+  var pct = (red === null) ? 0 : Math.max(0, Math.min(100, red / d.cut * 100));
+  document.getElementById('rd-fill').style.width = pct + '%';
+  document.getElementById('rd-fill').style.background = d.warm ? '#00ff88' : '#ff3333';
+}
+
+function renderFaults(d) {
+  var now = document.getElementById('wf-now');
+  if (d.latched) {
+    now.className = 'wf-now bad';
+    now.textContent = 'АВАРИЯ ' + d.fault + ' · ' + String(d.ftext || '');
+  } else {
+    now.className = 'wf-now';
+    now.textContent = 'Сейчас аварий нет';
+  }
+
+  var el = document.getElementById('wf-last');
+  if (!d.lf) {
+    el.textContent = 'Плата аварий пока не запоминала.';
+  } else {
+    el.textContent = 'Последняя запомненная авария: ' + d.lf + ' · ' +
+      (FAULT_TEXT[d.lf] || 'неизвестный код') +
+      '. Случилась на ' + mmss(d.lfa) + ' работы платы. ' +
+      'Запись переживает выключение зажигания.';
+  }
+
+  document.getElementById('wf-log').textContent = (d.log || []).join('\n');
+}
+
+function renderStats(d) {
+  document.getElementById('ws-runs').textContent = (d.runs === undefined) ? '--' : d.runs;
+  document.getElementById('ws-secs').textContent = dur(d.secs);
+  document.getElementById('ws-rdyl').textContent = dur(d.rdyL);
+  document.getElementById('ws-rdya').textContent = dur(d.rdyA);
+  document.getElementById('ws-up').textContent = dur(d.up);
 }
 
 /* Кнопка Power. Переключаем вид сразу, а входящее состояние платы игнорируем

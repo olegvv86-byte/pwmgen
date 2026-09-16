@@ -63,6 +63,7 @@ public class MainActivity extends Activity {
     private volatile boolean pageReady = false;
     private volatile boolean forceRescan = false;
     private volatile boolean lastLatched = false;
+    private volatile boolean lastWarm = false;
 
     private final Object wake = new Object();
     private ExecutorService cmdPool;
@@ -312,16 +313,27 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** Один короткий вибросигнал в момент появления аварии, ТЗ 6 */
+    /**
+     * Вибросигналы по кромке события: один длинный на аварию, два коротких
+     * на готовность редуктора. Второй нужен, чтобы не сидеть и не пялиться
+     * в экран, дожидаясь, когда можно заводить.
+     */
     private void checkAlarm(String json) {
         boolean latched = json.contains("\"latched\":true");
-        if (latched && !lastLatched && vibrator != null && vibrator.hasVibrator()) {
-            try {
-                vibrator.vibrate(200);
-            } catch (Throwable ignored) {
-            }
-        }
+        if (latched && !lastLatched) buzz(new long[]{0, 400});
         lastLatched = latched;
+
+        boolean warm = json.contains("\"warm\":true");
+        if (warm && !lastWarm) buzz(new long[]{0, 120, 140, 120});
+        lastWarm = warm;
+    }
+
+    private void buzz(long[] pattern) {
+        if (vibrator == null || !vibrator.hasVibrator()) return;
+        try {
+            vibrator.vibrate(pattern, -1);
+        } catch (Throwable ignored) {
+        }
     }
 
     /**
