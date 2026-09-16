@@ -296,6 +296,7 @@ input[type=range].yellow::-webkit-slider-thumb { background: var(--yellow); box-
         <div class="card">
           <div class="c-ttl">БОРТСЕТЬ</div>
           <div class="c-val" id="v-vbat" style="color:var(--green)">--</div>
+          <div class="c-sub" id="v-rawV">ADC ----</div>
         </div>
         <div class="card">
           <div class="c-ttl">МОЩНОСТЬ</div>
@@ -483,15 +484,25 @@ function t1(v) {
   return (v === null || v === undefined) ? '--' : v.toFixed(1);
 }
 
+/* Холодный датчик приходит как null, но это не поломка: термистор ушёл ниже
+   диапазона канала. Прошивка помечает такие в массиве cold. */
+function tc(v, isCold) {
+  if (v !== null && v !== undefined) return v.toFixed(1);
+  return isCold ? 'ХОЛОД' : '--';
+}
+
 function renderCards(d) {
-  document.getElementById('v-red').textContent = t1(d.red);
-  document.getElementById('v-p1').textContent = t1(d.p1);
-  document.getElementById('v-p2').textContent = t1(d.p2);
+  var cold = d.cold || [0, 0, 0];   /* [пластина 1, пластина 2, редуктор] */
+  document.getElementById('v-red').textContent = tc(d.red, cold[2]);
+  document.getElementById('v-p1').textContent = tc(d.p1, cold[0]);
+  document.getElementById('v-p2').textContent = tc(d.p2, cold[1]);
   document.getElementById('v-rawR').textContent = 'ADC ' + d.rawR;
   document.getElementById('v-raw1').textContent = 'ADC ' + d.raw1;
   document.getElementById('v-raw2').textContent = 'ADC ' + d.raw2;
 
   document.getElementById('v-vbat').textContent = t1(d.vbat) + ' В';
+  document.getElementById('v-rawV').textContent =
+    (d.rawV === undefined) ? '' : ('ADC ' + d.rawV + ' · ' + d.mvV + ' мВ');
   document.getElementById('v-duty').textContent = d.duty + ' %';
   document.getElementById('v-dutybar').style.width = Math.max(0, Math.min(100, d.duty)) + '%';
 
