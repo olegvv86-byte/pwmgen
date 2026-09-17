@@ -7,7 +7,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>GBO HEATER</AssemblyName>
     <RootNamespace>GboHeater</RootNamespace>
-    <ApplicationIcon></ApplicationIcon>
+    <ApplicationIcon>app.ico</ApplicationIcon>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
   </PropertyGroup>
   <ItemGroup>

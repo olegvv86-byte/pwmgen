@@ -33,6 +33,8 @@ public class MainForm : Form
     public MainForm()
     {
         Text = "GBO HEATER";
+        // та же иконка, что у файла программы — Windows её уже знает
+        try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
         BackColor = Color.FromArgb(4, 4, 8);
         ClientSize = new Size(920, 560);
         MinimumSize = new Size(620, 400);
