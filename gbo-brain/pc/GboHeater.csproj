@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>GBO HEATER</AssemblyName>
+    <RootNamespace>GboHeater</RootNamespace>
+    <ApplicationIcon></ApplicationIcon>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2957.106" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="..\app\src\main\assets\index.html" Link="index.html" />
+  </ItemGroup>
+</Project>

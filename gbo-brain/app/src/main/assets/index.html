@@ -362,6 +362,17 @@ input[type=range].yellow::-webkit-slider-thumb { background: var(--yellow); box-
 .ws-note { font-size: 10px; color: var(--dim); margin-top: 12px; line-height: 1.6; }
 .ws-note b { color: var(--text); font-weight: normal; }
 
+/* ─ прошивка ─ */
+.wl-now { font-size: 13px; color: var(--text); line-height: 1.6; margin-bottom: 14px; }
+.wl-now.ok  { color: var(--green); }
+.wl-now.bad { color: var(--red); }
+.wl-track {
+  height: 10px; background: var(--border); border-radius: 5px;
+  margin: 16px 0; overflow: hidden; display: none;
+}
+.wl-track.on { display: block; }
+.wl-track i { display: block; height: 100%; width: 0; background: var(--green); }
+
 /* тост вместо Toast — Android-диалоги не нужны ради одной строки */
 .toast {
   position: fixed; left: 50%; bottom: 14px;
@@ -557,6 +568,7 @@ input[type=range].yellow::-webkit-slider-thumb { background: var(--yellow); box-
     <span class="win-tab" id="wt-ready" onclick="showWindow('ready')">ГОТОВНОСТЬ</span>
     <span class="win-tab" id="wt-faults" onclick="showWindow('faults')">АВАРИИ</span>
     <span class="win-tab" id="wt-stats" onclick="showWindow('stats')">СТАТИСТИКА</span>
+    <span class="win-tab" id="wt-flash" onclick="showWindow('flash')" style="display:none">ПРОШИВКА</span>
     <span class="win-x" onclick="closeWindow()">✕</span>
   </div>
 
@@ -580,18 +592,26 @@ input[type=range].yellow::-webkit-slider-thumb { background: var(--yellow); box-
 
   <!-- статистика -->
   <div class="win-body" id="wb-stats">
+    <div class="ws-row"><b>Домашняя сеть</b><span id="ws-sta">--</span></div>
+    <div class="ws-row"><b>Адрес платы</b><span id="ws-ip">--</span></div>
     <div class="ws-row"><b>Прогревов всего</b><span id="ws-runs">--</span></div>
     <div class="ws-row"><b>Нагрев суммарно</b><span id="ws-secs">--</span></div>
     <div class="ws-row"><b>Последний до готовности</b><span id="ws-rdyl">--</span></div>
     <div class="ws-row"><b>В среднем до готовности</b><span id="ws-rdya">--</span></div>
     <div class="ws-row"><b>Плата на ходу</b><span id="ws-up">--</span></div>
-    <div class="ws-row"><b>Адрес платы</b><span id="ws-ip">--</span></div>
-    <div class="ws-row"><b>Домашняя сеть</b><span id="ws-sta">--</span></div>
-    <div class="ws-note">Прошивка заливается по сети: откройте в браузере
-      <b>gbo.local/update</b> или адрес платы со строкой <b>/update</b>.
-      Домашняя сеть задаётся там же, на странице <b>/wifi</b>.</div>
     <div class="ws-note">Если время до готовности месяц за месяцем растёт — стоит
       посмотреть ТЭН, контакты и питание.</div>
+  </div>
+
+  <!-- прошивка: только в программе на компьютере -->
+  <div class="win-body" id="wb-flash">
+    <div class="wl-now" id="wl-now">Выберите файл прошивки — обычный .bin,
+      примерно на мегабайт.</div>
+    <button class="f-btn" id="wl-btn" onclick="pickFirmware()">ВЫБРАТЬ ФАЙЛ И ЗАЛИТЬ</button>
+    <div class="wl-track" id="wl-track"><i id="wl-fill"></i></div>
+    <div class="ws-note">На время заливки плата снимает нагрев сама. Не выключайте
+      питание, пока идёт полоса. Если связь оборвётся, плата поднимется на старой
+      прошивке — испортить её этим нельзя.</div>
   </div>
 </div>
 
@@ -916,7 +936,13 @@ var FAULT_TEXT = {
 };
 
 var winNow = '';            /* '' — закрыто */
-var WIN_ORDER = ['ready', 'faults', 'stats'];
+var WIN_ORDER = ["ready", "faults", "stats"];
+/* окно прошивки есть только в программе на компьютере: в телефоне заливать
+   нечем и незачем — он только смотрит и управляет */
+if (window.GBO_PC) {
+  WIN_ORDER.push("flash");
+  document.getElementById("wt-flash").style.display = "";
+}
 var winAuto = false;        /* окно открылось само, при начале прогрева */
 
 function showWindow(name) {
@@ -1016,8 +1042,47 @@ function renderWindow(d) {
   if (!winNow) return;
   if (winNow === 'ready') renderReady(d);
   else if (winNow === 'faults') renderFaults(d);
-  else renderStats(d);
+  else if (winNow === 'stats') renderStats(d);
+  /* окно прошивки живёт своей жизнью, данными платы его не трогаем */
 }
+
+/* ─── заливка прошивки, только в программе на компьютере ─── */
+
+function pickFirmware() {
+  var b = bridge();
+  if (b && b.pickFirmware) b.pickFirmware();
+}
+
+/* Зовётся оболочкой: start — начали, progress — процент, done — результат */
+window.onFlash = function (stage, pct, msg) {
+  var now = document.getElementById('wl-now');
+  var track = document.getElementById('wl-track');
+  var fill = document.getElementById('wl-fill');
+  var btn = document.getElementById('wl-btn');
+
+  if (stage === 'start') {
+    now.className = 'wl-now';
+    now.textContent = 'Заливаю. Не выключайте питание платы.';
+    track.className = 'wl-track on';
+    fill.style.width = '0%';
+    btn.disabled = true;
+    return;
+  }
+
+  if (stage === 'progress') {
+    fill.style.width = pct + '%';
+    now.textContent = 'Заливаю, ' + pct + ' %. Не выключайте питание платы.';
+    return;
+  }
+
+  btn.disabled = false;
+  fill.style.width = '100%';
+  var ok = String(msg || '').indexOf('Готово') === 0;
+  now.className = ok ? 'wl-now ok' : 'wl-now bad';
+  now.textContent = ok
+    ? 'Готово. Плата перезагружается, связь восстановится сама.'
+    : ('Не получилось: ' + msg);
+};
 
 function renderReady(d) {
   var st = document.getElementById('rd-state');
