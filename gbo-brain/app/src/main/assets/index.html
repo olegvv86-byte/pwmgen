@@ -96,6 +96,17 @@ body {
   background: #04180f;
   box-shadow: 0 0 8px #00ff8844;
 }
+/* кнопка принудительного нагрева: оранжевая, чтобы не путать ни с зелёным
+   рабочим режимом, ни с красной аварией */
+.sb-btn.frc { color: var(--dim); border-color: var(--border); }
+.sb-btn.frc svg { width: 22px; height: 22px; }
+.sb-btn.frc.on {
+  color: #ff8a1f;
+  border-color: #ff8a1f;
+  background: #2a1400;
+  box-shadow: 0 0 10px #ff8a1f66;
+}
+
 .sb-sep { width: 28px; height: 1px; background: var(--border); margin: 1px 0; flex-shrink: 0; }
 
 /* ═══ MAIN ═══ */
@@ -147,13 +158,17 @@ body {
 /* столбец ниже высоты цифр — число садится над заливкой и красится в цвет канала */
 .bar-num.above { color: inherit; }
 /* подложка под подписью: заливка доходит до низа и съедала бы её */
+/* Подпись-цоколь под столбцом. Фон — цвет самого столбца (currentColor
+   достаётся от .bar), буквы чёрные: на красном, бирюзовом и жёлтом читается
+   одинаково хорошо, а серым по цветной заливке было не разобрать. */
 .bar-cap {
   position: absolute; left: 0; right: 0; bottom: 0;
   text-align: center; font-size: 9px; letter-spacing: 1px;
-  padding: 2px 0 3px;
-  color: var(--dim); background: rgba(4, 4, 8, 0.8);
+  padding: 3px 0 4px;
+  background: currentColor;
   pointer-events: none;
 }
+.bar-cap b { color: #000; font-weight: bold; }
 .bar-adc {
   position: absolute; left: 0; right: 0; top: 3px;
   text-align: center; font-size: 8px;
@@ -161,6 +176,36 @@ body {
 }
 @media (max-height: 430px) { .bar-num { font-size: 22px; } }
 @media (max-height: 330px) { .bar-num { font-size: 17px; } }
+
+/* Плашка принудительного режима: поверх всех трёх столбцов, яркая и
+   полупрозрачная — столбцы должны просвечивать, но забыть про режим было
+   нельзя. Мигает медленно, чтобы ловить взгляд и не раздражать. */
+.force-veil {
+  position: absolute; left: 0; right: 0; top: 0; bottom: 0;
+  display: none;
+  align-items: flex-start; justify-content: center;
+  padding-top: 6px;
+  background: rgba(255, 138, 31, 0.16);
+  border: 2px solid rgba(255, 138, 31, 0.75);
+  border-radius: 6px;
+  z-index: 4;
+  pointer-events: none;
+}
+.force-veil.on { display: flex; animation: veil 2s ease-in-out infinite; }
+.force-veil span {
+  font-size: 22px; font-weight: bold; letter-spacing: 3px;
+  color: #ff8a1f;
+  background: rgba(4, 4, 8, 0.72);
+  border: 1px solid rgba(255, 138, 31, 0.5);
+  border-radius: 8px;
+  padding: 7px 16px;
+  text-align: center;
+}
+@keyframes veil {
+  0%, 100% { background: rgba(255, 138, 31, 0.10); }
+  50%      { background: rgba(255, 138, 31, 0.24); }
+}
+@media (max-height: 430px) { .force-veil span { font-size: 19px; } }
 
 /* статусная плашка поверх столбцов — как top-bar в pwmgen */
 .state-bar {
@@ -217,7 +262,14 @@ body {
    высотой в три пикселя и слипались */
 .sl-sub { font-size: 7px; letter-spacing: 0.5px; line-height: 1; margin-top: 1px; }
 .set-hint { font-size: 8px; color: #1f2b45; line-height: 1.5; padding-top: 1px; }
-.sl-val { font-family: 'Share Tech Mono', monospace; font-size: 16px; min-width: 40px; text-align: right; }
+/* по числу можно ткнуть и ввести своё — пунктир об этом намекает */
+.sl-val {
+  font-family: 'Share Tech Mono', monospace; font-size: 16px;
+  min-width: 40px; text-align: right;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+  border-bottom: 1px dashed currentColor; padding-bottom: 1px;
+}
+.sl-val:active { opacity: 0.5; }
 .sl-unit { font-size: 9px; color: var(--dim); width: 18px; }
 
 input[type=range] {
@@ -373,6 +425,52 @@ input[type=range].yellow::-webkit-slider-thumb { background: var(--yellow); box-
 .wl-track.on { display: block; }
 .wl-track i { display: block; height: 100%; width: 0; background: var(--green); }
 
+/* окно подтверждения принудительного нагрева */
+.fask {
+  position: fixed; left: 0; top: 0; right: 0; bottom: 0;
+  background: rgba(4, 4, 8, 0.92);
+  display: none; align-items: center; justify-content: center;
+  z-index: 120; padding: 20px;
+}
+.fask.show { display: flex; }
+.fask-box {
+  max-width: 460px; text-align: center;
+  display: flex; flex-direction: column; gap: 12px; align-items: center;
+}
+.fask-title { font-size: 17px; font-weight: bold; letter-spacing: 2px; color: #ff8a1f; }
+.fask-title.hot { color: var(--red); }
+.fask-text { font-size: 12px; color: var(--text); line-height: 1.6; }
+.f-btn.hot { color: var(--red); border-color: #5a2020; background: #2a0808; }
+
+
+/* ручной ввод значения — открывается тычком по числу у ползунка */
+.nask {
+  position: fixed; left: 0; top: 0; right: 0; bottom: 0;
+  background: rgba(4, 4, 8, 0.92);
+  display: none; align-items: center; justify-content: center;
+  z-index: 130; padding: 20px;
+}
+.nask.show { display: flex; }
+.nask-box {
+  width: 100%; max-width: 300px; text-align: center;
+  display: flex; flex-direction: column; gap: 10px; align-items: stretch;
+}
+.nask-title { font-size: 13px; letter-spacing: 2px; color: var(--cyan); }
+.nask-lim { font-size: 10px; color: var(--dim); }
+.nask-in {
+  font-family: 'Share Tech Mono', monospace; font-size: 30px; text-align: center;
+  background: #0a0f1a; color: var(--text);
+  border: 1px solid #1a2540; border-radius: 6px; padding: 10px 6px;
+  width: 100%; box-sizing: border-box; outline: none;
+}
+.nask-in:focus { border-color: var(--cyan); }
+/* стрелочки числового поля тут только мешают */
+.nask-in::-webkit-inner-spin-button, .nask-in::-webkit-outer-spin-button {
+  -webkit-appearance: none; margin: 0;
+}
+.nask-row { display: flex; gap: 8px; }
+.nask-row .f-btn { flex: 1; }
+
 /* тост вместо Toast — Android-диалоги не нужны ради одной строки */
 .toast {
   position: fixed; left: 50%; bottom: 14px;
@@ -394,6 +492,13 @@ input[type=range].yellow::-webkit-slider-thumb { background: var(--yellow); box-
          stroke-width="2.2" stroke-linecap="round">
       <path d="M12 3.5v7.5"/>
       <path d="M6.9 6.9a7.2 7.2 0 1 0 10.2 0"/>
+    </svg>
+  </div>
+  <div class="sb-btn frc" id="btn-force" onclick="askForce()" title="Принудительный нагрев">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="1.7" stroke-linejoin="round">
+      <path d="M12 2.5c3.2 3.6 5.4 6.6 5.4 9.6a5.4 5.4 0 0 1-10.8 0c0-1.3.4-2.5 1.1-3.7"/>
+      <path d="M12 21a2.9 2.9 0 0 1-2.9-2.9c0-1.6 1.2-2.6 2.9-5.1 1.7 2.5 2.9 3.5 2.9 5.1A2.9 2.9 0 0 1 12 21z"/>
     </svg>
   </div>
   <div class="sb-sep"></div>
@@ -433,26 +538,27 @@ input[type=range].yellow::-webkit-slider-thumb { background: var(--yellow); box-
   <div class="scope-wrap" id="scope-wrap">
     <div class="state-bar warn" id="state-bar">ОЖИДАНИЕ</div>
     <div class="bars">
+      <div class="force-veil" id="force-veil"><span>ПРИНУДИТЕЛЬНЫЙ НАГРЕВ</span></div>
       <div class="bar" id="bar-red" style="color:var(--red)">
         <div class="bar-fill" style="background:var(--red)"></div>
         <div class="bar-mark"></div>
         <div class="bar-adc">ADC ----</div>
         <div class="bar-num">--</div>
-        <div class="bar-cap">РЕДУКТОР</div>
+        <div class="bar-cap"><b>РЕДУКТОР ГБО</b></div>
       </div>
       <div class="bar" id="bar-p1" style="color:var(--cyan)">
         <div class="bar-fill" style="background:var(--cyan)"></div>
         <div class="bar-mark"></div>
         <div class="bar-adc">ADC ----</div>
         <div class="bar-num">--</div>
-        <div class="bar-cap">ПЛАСТИНА 1</div>
+        <div class="bar-cap"><b>3 ТЭНА · СТОРОНА А</b></div>
       </div>
       <div class="bar" id="bar-p2" style="color:var(--yellow)">
         <div class="bar-fill" style="background:var(--yellow)"></div>
         <div class="bar-mark"></div>
         <div class="bar-adc">ADC ----</div>
         <div class="bar-num">--</div>
-        <div class="bar-cap">ПЛАСТИНА 2</div>
+        <div class="bar-cap"><b>3 ТЭНА · СТОРОНА Б</b></div>
       </div>
     </div>
   </div>
@@ -498,7 +604,7 @@ input[type=range].yellow::-webkit-slider-thumb { background: var(--yellow); box-
           </svg>
         </span>
         <input type="range" id="sl-sp" min="60" max="90" step="1" value="75">
-        <span class="sl-val" id="sv-sp" style="color:var(--cyan)">75</span>
+        <span class="sl-val" id="sv-sp" onclick="askNum('sp')" style="color:var(--cyan)">75</span>
         <span class="sl-unit">°C</span>
       </div>
       <div class="slider-row">
@@ -510,8 +616,8 @@ input[type=range].yellow::-webkit-slider-thumb { background: var(--yellow); box-
             <path d="M6 16.5V10h3v6.5h3V10h3v6.5h3"/>
           </svg>
         </span>
-        <input type="range" id="sl-pw" min="20" max="100" step="5" value="80" class="blue">
-        <span class="sl-val" id="sv-pw" style="color:var(--blue)">80</span>
+        <input type="range" id="sl-pw" min="20" max="100" step="1" value="80" class="blue">
+        <span class="sl-val" id="sv-pw" onclick="askNum('pw')" style="color:var(--blue)">80</span>
         <span class="sl-unit">%</span>
       </div>
       <div class="slider-row">
@@ -529,7 +635,7 @@ input[type=range].yellow::-webkit-slider-thumb { background: var(--yellow); box-
           <span class="sl-sub">MAGIC 3</span>
         </span>
         <input type="range" id="sl-ct" min="40" max="80" step="1" value="60" class="yellow">
-        <span class="sl-val" id="sv-ct" style="color:var(--yellow)">60</span>
+        <span class="sl-val" id="sv-ct" onclick="askNum('ct')" style="color:var(--yellow)">60</span>
         <span class="sl-unit">°C</span>
       </div>
       <div class="set-hint">
@@ -612,6 +718,29 @@ input[type=range].yellow::-webkit-slider-thumb { background: var(--yellow); box-
     <div class="ws-note">На время заливки плата снимает нагрев сама. Не выключайте
       питание, пока идёт полоса. Если связь оборвётся, плата поднимется на старой
       прошивке — испортить её этим нельзя.</div>
+  </div>
+</div>
+
+<!-- подтверждение принудительного нагрева -->
+<div class="fask" id="fask">
+  <div class="fask-box">
+    <div class="fask-title" id="fask-title">ПРИНУДИТЕЛЬНЫЙ НАГРЕВ</div>
+    <div class="fask-text" id="fask-text"></div>
+    <button class="f-btn" id="fask-go" onclick="forceNext()">ДАЛЬШЕ</button>
+    <button class="f-btn ghost" onclick="forceCancel()">ОТМЕНА</button>
+  </div>
+</div>
+
+<!-- ручной ввод значения ползунка -->
+<div class="nask" id="nask">
+  <div class="nask-box">
+    <div class="nask-title" id="nask-title"></div>
+    <input class="nask-in" id="nask-in" type="number" inputmode="numeric">
+    <div class="nask-lim" id="nask-lim"></div>
+    <div class="nask-row">
+      <button class="f-btn" onclick="numOk()">ОК</button>
+      <button class="f-btn ghost" onclick="numCancel()">ОТМЕНА</button>
+    </div>
   </div>
 </div>
 
@@ -698,6 +827,7 @@ window.onApi = function (d) {
   last = d;
   renderBars(d);
   renderState(d);
+  renderForce(d);
   renderCards(d);
   renderSetpoints(d);
   renderLog(d.log);
@@ -805,9 +935,11 @@ function renderState(d) {
     txt = 'АВАРИЯ ' + d.fault + ' · ' + String(d.ftext || '').toUpperCase();
   } else if (!on) {
     txt = 'ВЫКЛЮЧЕНО';
+  } else if (d.redblk) {
+    txt = 'РЕДУКТОР ГОРЯЧИЙ · НАГРЕВ СНЯТ';
   } else if (d.uv) {
     txt = 'ПРОСАДКА · НАГРЕВ СНЯТ';
-  } else if (d.warm) {
+  } else if (d.warm && !d.force) {
     txt = 'РЕДУКТОР ПРОГРЕТ · ОБЕСТОЧЕНО';
   } else if (d.state === 2) {
     cls = 'state-bar run'; txt = 'НАГРЕВ';
@@ -918,13 +1050,72 @@ function sendParams() {
   );
 }
 
+
+/* ═══════════════ РУЧНОЙ ВВОД ═══════════════
+
+   Ползунком точное число ловить неудобно, особенно на ходу. Тычок по самой
+   цифре открывает поле ввода: набрал, ОК — и значение ушло на плату тем же
+   путём, что и с ползунка. */
+
+var NUM_NAME = {
+  sp: ['ТЕМПЕРАТУРА ПЛАСТИН', '°C'],
+  pw: ['МОЩНОСТЬ НАГРЕВА', '%'],
+  ct: ['ОТСЕЧКА ПО РЕДУКТОРУ', '°C']
+};
+var numId = null;
+
+function askNum(id) {
+  numId = id;
+  var sl = document.getElementById('sl-' + id);
+  var n = NUM_NAME[id];
+
+  document.getElementById('nask-title').textContent = n[0];
+  document.getElementById('nask-lim').textContent =
+    'от ' + sl.min + ' до ' + sl.max + ' ' + n[1];
+
+  var in_ = document.getElementById('nask-in');
+  in_.min = sl.min;
+  in_.max = sl.max;
+  in_.value = sl.value;
+
+  document.getElementById('nask').className = 'nask show';
+  /* фокус после показа, иначе клавиатура не поднимется */
+  setTimeout(function () { in_.focus(); in_.select(); }, 30);
+}
+
+function numCancel() {
+  document.getElementById('nask').className = 'nask';
+  numId = null;
+}
+
+function numOk() {
+  if (!numId) return;
+  var sl = document.getElementById('sl-' + numId);
+  var v = parseInt(document.getElementById('nask-in').value, 10);
+
+  if (isNaN(v)) { numCancel(); return; }
+
+  /* вышли за пределы — прижимаем к краю и говорим об этом, молча менять
+     введённое число нехорошо */
+  var lo = parseInt(sl.min, 10), hi = parseInt(sl.max, 10);
+  if (v < lo) { v = lo; toast('Меньше ' + lo + ' нельзя'); }
+  if (v > hi) { v = hi; toast('Больше ' + hi + ' нельзя'); }
+
+  sl.value = v;
+  document.getElementById('sv-' + numId).textContent = sl.value;
+
+  numCancel();
+  holdUntil = Date.now() + HOLD_MS;   /* как после ползунка: не затирать ответом платы */
+  sendParams();
+}
+
 /* ═══════════════ ОКНА ═══════════════ */
 
 /* Текущая авария приходит с текстом, а запомненная — одним кодом.
    Коды заданы в прошивке в faultText(), держим их здесь же. */
 var FAULT_TEXT = {
-  1: 'датчик RT3 (пластина 1)',
-  2: 'датчик RT4 (пластина 2)',
+  1: 'датчик RT3 (сторона А)',
+  2: 'датчик RT4 (сторона Б)',
   3: 'датчик RT2 (редуктор)',
   4: 'расхождение датчиков пластин',
   5: 'перегрев пластин',
@@ -1162,6 +1353,82 @@ function renderStats(d) {
   else             { sta.textContent = d.ssid + " · нет связи"; sta.style.color = "var(--red)"; }
 }
 
+/* ═══════════════ ПРИНУДИТЕЛЬНЫЙ НАГРЕВ ═══════════════
+
+   Включение в два подтверждения: режим снимает отсечку по редуктору, то есть
+   подогреватель будет работать всё время, пока включено зажигание. Случайно
+   ткнуть в такое нельзя. Выключение — одним нажатием, тут осторожничать не с
+   чем. */
+
+var forceStep = 0;          /* 0 закрыто, 1 первое окно, 2 второе */
+var forceHoldUntil = 0;     /* как у Power: даём команде дойти до платы */
+
+function askForce() {
+  /* уже включён — гасим сразу, без вопросов */
+  if (document.getElementById('btn-force').className.indexOf('on') >= 0) {
+    sendForce(false);
+    return;
+  }
+  forceStep = 1;
+  drawForceAsk();
+}
+
+function forceNext() {
+  if (forceStep === 1) { forceStep = 2; drawForceAsk(); return; }
+  forceStep = 0;
+  drawForceAsk();
+  sendForce(true);
+}
+
+function forceCancel() {
+  forceStep = 0;
+  drawForceAsk();
+}
+
+function drawForceAsk() {
+  var box = document.getElementById('fask');
+  if (!forceStep) { box.className = 'fask'; return; }
+
+  box.className = 'fask show';
+  var t = document.getElementById('fask-title');
+  var b = document.getElementById('fask-text');
+  var go = document.getElementById('fask-go');
+
+  if (forceStep === 1) {
+    t.className = 'fask-title';
+    t.textContent = 'ПРИНУДИТЕЛЬНЫЙ НАГРЕВ';
+    b.textContent = 'Подогреватель перестанет выключаться по прогреву редуктора ' +
+      'и будет работать всё время, пока включено зажигание. Это для сильных ' +
+      'морозов, когда штатного подогрева не хватает.';
+    go.textContent = 'ДАЛЬШЕ';
+    go.className = 'f-btn';
+  } else {
+    t.className = 'fask-title hot';
+    t.textContent = 'ВКЛЮЧИТЬ?';
+    b.textContent = 'Не забудьте выключить, когда машина поедет ровно. ' +
+      'Режим сбрасывается сам при выключении зажигания.';
+    go.textContent = 'ДА, ВКЛЮЧИТЬ';
+    go.className = 'f-btn hot';
+  }
+}
+
+function sendForce(on) {
+  var b = bridge();
+  if (!b || !b.setForce) return;
+  document.getElementById('btn-force').className = on ? 'sb-btn frc on' : 'sb-btn frc';
+  document.getElementById('force-veil').className = on ? 'force-veil on' : 'force-veil';
+  forceHoldUntil = Date.now() + 1200;
+  b.setForce(on);
+}
+
+/* Состояние принудительного режима приходит с платы — кнопка и плашка
+   показывают правду, даже если переключали с другого устройства. */
+function renderForce(d) {
+  if (Date.now() < forceHoldUntil) return;
+  var on = !!d.force;
+  document.getElementById('btn-force').className = on ? 'sb-btn frc on' : 'sb-btn frc';
+  document.getElementById('force-veil').className = on ? 'force-veil on' : 'force-veil';
+}
 /* Кнопка Power. Переключаем вид сразу, а входящее состояние платы игнорируем
    секунду: команда и следующий опрос идут навстречу друг другу, и без этого
    кнопка успевала бы моргнуть обратно. */
@@ -1219,6 +1486,12 @@ function toast(msg) {
 bindSlider('sp');
 bindSlider('pw');
 bindSlider('ct');
+
+/* Enter в поле ввода — то же, что ОК; Esc — отмена */
+document.getElementById('nask-in').addEventListener('keydown', function (e) {
+  if (e.keyCode === 13) { e.preventDefault(); numOk(); }
+  if (e.keyCode === 27) { numCancel(); }
+}, false);
 
 window.addEventListener('resize', function () { setTimeout(redrawBars, 50); }, false);
 window.addEventListener('orientationchange', function () { setTimeout(redrawBars, 250); }, false);

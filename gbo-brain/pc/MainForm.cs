@@ -88,6 +88,7 @@ function _gbo(o){ chrome.webview.postMessage(JSON.stringify(o)); }
 window.AndroidGBO = {
   setParams:  function(sp,pw,ct){ _gbo({m:'setParams',sp:sp,pw:pw,ct:ct}); },
   setEnabled: function(on){ _gbo({m:'setEnabled',on:!!on}); },
+  setForce:   function(on){ _gbo({m:'setForce',on:!!on}); },
   resetFault: function(){ _gbo({m:'resetFault'}); },
   rescan:     function(){ _gbo({m:'rescan'}); },
   askIp:      function(){ _gbo({m:'askIp'}); },
@@ -177,6 +178,10 @@ window.AndroidGBO = {
 
             case "setEnabled":
                 await _board.Set("en=" + (m.GetProperty("on").GetBoolean() ? 1 : 0));
+                break;
+
+            case "setForce":
+                await _board.Set("force=" + (m.GetProperty("on").GetBoolean() ? 1 : 0));
                 break;
 
             case "resetFault":

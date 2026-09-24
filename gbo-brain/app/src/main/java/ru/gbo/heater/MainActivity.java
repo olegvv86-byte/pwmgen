@@ -191,6 +191,20 @@ public class MainActivity extends Activity {
             });
         }
 
+        /** Принудительный нагрев: снимает отсечку по редуктору */
+        @JavascriptInterface
+        public void setForce(final boolean on) {
+            final String h = host;
+            if (h == null) return;
+            cmdPool.execute(new Runnable() {
+                @Override
+                public void run() {
+                    String r = httpGet("http://" + h + "/set?force=" + (on ? 1 : 0), TO_POLL);
+                    js("window.onSetDone && onSetDone(" + (r != null ? "true" : "false") + ")");
+                }
+            });
+        }
+
         /** Сброс защёлки: ok — сброшено, hot — пластина ещё горячая */
         @JavascriptInterface
         public void resetFault() {
