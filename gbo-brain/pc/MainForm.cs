@@ -92,7 +92,11 @@ window.AndroidGBO = {
   resetFault: function(){ _gbo({m:'resetFault'}); },
   rescan:     function(){ _gbo({m:'rescan'}); },
   askIp:      function(){ _gbo({m:'askIp'}); },
-  pickFirmware: function(){ _gbo({m:'pickFirmware'}); }
+  pickFirmware: function(){ _gbo({m:'pickFirmware'}); },
+  getCurve:   function(){ _gbo({m:'getCurve'}); },
+  clearHints: function(){ _gbo({m:'clearHints'}); },
+  resetVmin:  function(){ _gbo({m:'resetVmin'}); },
+  saveLog:    function(t){ _gbo({m:'saveLog',t:String(t||'')}); }
 };";
 
     // ─────────────────────────── поиск платы ───────────────────────────
@@ -198,9 +202,54 @@ window.AndroidGBO = {
                 AskIp();
                 break;
 
+            case "getCurve":
+                var cv = await _board.Curve();
+                if (cv != null) Push("window.onCurve && onCurve(" + JsonSerializer.Serialize(cv) + ")");
+                break;
+
+            case "clearHints":
+                await _board.Set("hints=0");
+                break;
+
+            case "resetVmin":
+                await _board.Set("vmin=0");
+                break;
+
+            case "saveLog":
+                SaveLog(m.GetProperty("t").GetString() ?? "");
+                break;
+
             case "pickFirmware":
                 await Flash();
                 break;
+        }
+    }
+
+    /// <summary>
+    /// Журнал в текстовый файл. Двадцать строк кольцевого буфера платы — то,
+    /// что видно на экране; больше на плате и не хранится.
+    /// </summary>
+    void SaveLog(string text)
+    {
+        using var dlg = new SaveFileDialog
+        {
+            Filter = "Текстовый файл (*.txt)|*.txt",
+            FileName = "gbo-log-" + DateTime.Now.ToString("yyyy-MM-dd-HHmm") + ".txt"
+        };
+        if (dlg.ShowDialog(this) != DialogResult.OK) return;
+
+        try
+        {
+            var head = "Журнал платы подогревателя ГБО" + Environment.NewLine +
+                       DateTime.Now.ToString("dd.MM.yyyy HH:mm") +
+                       "   плата " + (_board.Host ?? "не найдена") + Environment.NewLine +
+                       new string('-', 52) + Environment.NewLine;
+            File.WriteAllText(dlg.FileName, head + text, Encoding.UTF8);
+        }
+        catch (Exception e)
+        {
+            MessageBox.Show(this, "Не вышло сохранить: " + e.Message,
+                            "ГБО", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
     }
 

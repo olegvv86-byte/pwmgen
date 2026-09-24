@@ -138,6 +138,9 @@ public class Board
     public Task<string> Set(string query) =>
         Host == null ? Task.FromResult<string>(null) : Get($"http://{Host}/set?{query}", TimeoutPoll);
 
+    public Task<string> Curve() =>
+        Host == null ? Task.FromResult<string>(null) : Get($"http://{Host}/curve", TimeoutPoll);
+
     public Task<string> Reset() =>
         Host == null ? Task.FromResult<string>(null) : Get($"http://{Host}/reset", TimeoutPoll);
 

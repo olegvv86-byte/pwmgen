@@ -205,6 +205,42 @@ public class MainActivity extends Activity {
             });
         }
 
+        /** Кривая последнего прогрева. Запрашивается, только когда открыто окно. */
+        @JavascriptInterface
+        public void getCurve() {
+            final String h = host;
+            if (h == null) return;
+            cmdPool.execute(new Runnable() {
+                @Override
+                public void run() {
+                    String r = httpGet("http://" + h + "/curve", TO_POLL);
+                    if (r != null) js("window.onCurve && onCurve(" + q(r) + ")");
+                }
+            });
+        }
+
+        /** Погасить подсказки про слабый нагрев и перекос сторон. */
+        @JavascriptInterface
+        public void clearHints() {
+            final String h = host;
+            if (h == null) return;
+            cmdPool.execute(new Runnable() {
+                @Override
+                public void run() { httpGet("http://" + h + "/set?hints=0", TO_POLL); }
+            });
+        }
+
+        /** Сбросить рекорд просадки — после замены аккумулятора старое дно врёт. */
+        @JavascriptInterface
+        public void resetVmin() {
+            final String h = host;
+            if (h == null) return;
+            cmdPool.execute(new Runnable() {
+                @Override
+                public void run() { httpGet("http://" + h + "/set?vmin=0", TO_POLL); }
+            });
+        }
+
         /** Сброс защёлки: ok — сброшено, hot — пластина ещё горячая */
         @JavascriptInterface
         public void resetFault() {

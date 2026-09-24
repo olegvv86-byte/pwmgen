@@ -288,6 +288,9 @@ input[type=range].blue::-webkit-slider-thumb { background: var(--blue); box-shad
 input[type=range].yellow::-webkit-slider-thumb { background: var(--yellow); box-shadow: 0 0 6px var(--yellow); }
 
 /* ─ журнал ─ */
+.log-save { margin-top: 5px; font-size: 10px; padding: 6px 10px; }
+/* с кнопкой журналу достаётся меньше высоты — иначе она уезжает за край */
+html.pc #panel-log .log { height: 72px; }
 .log {
   background: var(--card);
   border: 1px solid var(--border);
@@ -443,6 +446,29 @@ input[type=range].yellow::-webkit-slider-thumb { background: var(--yellow); box-
 .f-btn.hot { color: var(--red); border-color: #5a2020; background: #2a0808; }
 
 
+
+/* Подсказки платы. Это не аварии: нагрев не снимается, красным не мигаем.
+   Но молчать о слабом нагреве или перекосе сторон тоже неправильно. */
+.hints { display: none; flex-direction: column; gap: 3px; padding: 4px 6px 0; flex-shrink: 0; }
+.hints.on { display: flex; }
+.hint {
+  font-size: 10px; letter-spacing: 1px; text-align: center;
+  padding: 4px 8px; border-radius: 4px;
+  -webkit-tap-highlight-color: transparent;
+}
+.hint.frost { color: #ff8a1f; background: #2a1606; border: 1px solid #5a3410; }
+.hint.warn  { color: var(--yellow); background: #221d0a; border: 1px solid #4a3f14; cursor: pointer; }
+.hint.warn:active { opacity: 0.6; }
+
+/* окно кривой прогрева */
+.cv-wrap { display: flex; flex-direction: column; gap: 6px; }
+#cv-canvas {
+  width: 100%; height: 190px; display: block;
+  background: #06080d; border: 1px solid var(--line); border-radius: 6px;
+}
+.cv-leg { display: flex; gap: 14px; justify-content: center; font-size: 10px; color: var(--dim); }
+.cv-leg i { display: inline-block; width: 12px; height: 3px; vertical-align: middle; margin-right: 5px; }
+
 /* ручной ввод значения — открывается тычком по числу у ползунка */
 .nask {
   position: fixed; left: 0; top: 0; right: 0; bottom: 0;
@@ -563,6 +589,9 @@ input[type=range].yellow::-webkit-slider-thumb { background: var(--yellow); box-
     </div>
   </div>
 
+  <!-- подсказки платы: не аварии, но сказать стоит -->
+  <div class="hints" id="hints"></div>
+
   <!-- ПАНЕЛИ -->
   <div class="ctrl">
 
@@ -647,6 +676,7 @@ input[type=range].yellow::-webkit-slider-thumb { background: var(--yellow); box-
     <!-- журнал -->
     <div class="panel" id="panel-log">
       <div class="log" id="log"></div>
+      <button class="f-btn ghost log-save" id="log-save" onclick="saveLog()" style="display:none">СОХРАНИТЬ ЖУРНАЛ В ФАЙЛ</button>
     </div>
 
   </div>
@@ -673,6 +703,7 @@ input[type=range].yellow::-webkit-slider-thumb { background: var(--yellow); box-
   <div class="win-tabs">
     <span class="win-tab" id="wt-ready" onclick="showWindow('ready')">ГОТОВНОСТЬ</span>
     <span class="win-tab" id="wt-faults" onclick="showWindow('faults')">АВАРИИ</span>
+    <span class="win-tab" id="wt-curve" onclick="showWindow('curve')">ПРОГРЕВ</span>
     <span class="win-tab" id="wt-stats" onclick="showWindow('stats')">СТАТИСТИКА</span>
     <span class="win-tab" id="wt-flash" onclick="showWindow('flash')" style="display:none">ПРОШИВКА</span>
     <span class="win-x" onclick="closeWindow()">✕</span>
@@ -696,17 +727,39 @@ input[type=range].yellow::-webkit-slider-thumb { background: var(--yellow); box-
     <div class="wf-log" id="wf-log"></div>
   </div>
 
+  <!-- кривая последнего прогрева -->
+  <div class="win-body" id="wb-curve">
+    <div class="cv-wrap">
+      <canvas id="cv-canvas"></canvas>
+      <div class="cv-leg">
+        <span><i style="background:var(--red)"></i>редуктор</span>
+        <span><i style="background:var(--cyan)"></i>пластины</span>
+        <span><i style="background:var(--blue)"></i>мощность</span>
+      </div>
+      <div class="ws-note" id="cv-note">Кривая пишется с начала прогрева, точка
+        раз в десять секунд. Видно, ровно ли выходили на температуру и сколько
+        на это ушло мощности. Живёт до следующего пуска подогрева.</div>
+    </div>
+  </div>
+
   <!-- статистика -->
   <div class="win-body" id="wb-stats">
     <div class="ws-row"><b>Домашняя сеть</b><span id="ws-sta">--</span></div>
     <div class="ws-row"><b>Адрес платы</b><span id="ws-ip">--</span></div>
+    <div class="ws-row"><b>Пуск был при</b><span id="ws-cs">--</span></div>
     <div class="ws-row"><b>Прогревов всего</b><span id="ws-runs">--</span></div>
     <div class="ws-row"><b>Нагрев суммарно</b><span id="ws-secs">--</span></div>
     <div class="ws-row"><b>Последний до готовности</b><span id="ws-rdyl">--</span></div>
     <div class="ws-row"><b>В среднем до готовности</b><span id="ws-rdya">--</span></div>
+    <div class="ws-row"><b>Скорость пластин</b><span id="ws-rate">--</span></div>
+    <div class="ws-row"><b>Минимум за поездку</b><span id="ws-vmt">--</span></div>
+    <div class="ws-row"><b>Рекорд просадки</b><span id="ws-vme">--</span></div>
     <div class="ws-row"><b>Плата на ходу</b><span id="ws-up">--</span></div>
-    <div class="ws-note">Если время до готовности месяц за месяцем растёт — стоит
-      посмотреть ТЭН, контакты и питание.</div>
+    <button class="f-btn ghost" onclick="resetVmin()">СБРОСИТЬ РЕКОРД ПРОСАДКИ</button>
+    <div class="ws-note">Скорость пластин — насколько быстро они набирают первые
+      двенадцать градусов на полной мощности. От улицы почти не зависит, так что
+      если число месяц за месяцем падает, дело в ТЭНах, контактах или питании.
+      Рекорд просадки сбрасывайте после замены аккумулятора — старое дно врёт.</div>
   </div>
 
   <!-- прошивка: только в программе на компьютере -->
@@ -828,6 +881,7 @@ window.onApi = function (d) {
   renderBars(d);
   renderState(d);
   renderForce(d);
+  renderHints(d);
   renderCards(d);
   renderSetpoints(d);
   renderLog(d.log);
@@ -1127,12 +1181,14 @@ var FAULT_TEXT = {
 };
 
 var winNow = '';            /* '' — закрыто */
-var WIN_ORDER = ["ready", "faults", "stats"];
+var WIN_ORDER = ["ready", "faults", "curve", "stats"];
 /* окно прошивки есть только в программе на компьютере: в телефоне заливать
    нечем и незачем — он только смотрит и управляет */
 if (window.GBO_PC) {
   WIN_ORDER.push("flash");
   document.getElementById("wt-flash").style.display = "";
+  document.getElementById("log-save").style.display = "";
+  document.documentElement.className += " pc";
 }
 var winAuto = false;        /* окно открылось само, при начале прогрева */
 
@@ -1145,6 +1201,7 @@ function showWindow(name) {
     document.getElementById('wb-' + n).className = on ? 'win-body show' : 'win-body';
   }
   document.getElementById('btn-win').className = 'sb-btn active';
+  if (name === 'curve') { askCurve(); setTimeout(drawCurve, 0); }
   if (last) renderWindow(last);
 }
 
@@ -1234,6 +1291,7 @@ function renderWindow(d) {
   if (winNow === 'ready') renderReady(d);
   else if (winNow === 'faults') renderFaults(d);
   else if (winNow === 'stats') renderStats(d);
+  else if (winNow === 'curve') curveTick(d);
   /* окно прошивки живёт своей жизнью, данными платы его не трогаем */
 }
 
@@ -1347,10 +1405,218 @@ function renderStats(d) {
   document.getElementById('ws-rdya').textContent = dur(d.rdyA);
   document.getElementById('ws-up').textContent = dur(d.up);
   document.getElementById("ws-ip").textContent = d.ip || "--";
+
+  /* Пуск был при — это температура редуктора на первом замере после
+     включения платы. Ниже нуля канал уже сжимает шкалу, поэтому там ставим
+     «около»: честнее, чем показывать точную цифру, которой нет. */
+  var cs = document.getElementById('ws-cs');
+  if (d.csl) cs.textContent = 'ниже шкалы, крепкий мороз';
+  else if (d.cs === null || d.cs === undefined) cs.textContent = '--';
+  else cs.textContent = (d.cs < 5 ? 'около ' : '') + d.cs.toFixed(1) + ' °C';
+
+  var rate = document.getElementById('ws-rate');
+  if (!d.rate) rate.textContent = '--';
+  else rate.textContent = d.rate.toFixed(1) + ' °C/мин' +
+       (d.rateA ? ' · обычно ' + d.rateA.toFixed(1) : '');
+  rate.style.color = d.wear ? 'var(--yellow)' : '';
+
+  document.getElementById('ws-vmt').textContent =
+    (d.vmt === null || d.vmt === undefined) ? '--' : d.vmt.toFixed(1) + ' В';
+  var vme = document.getElementById('ws-vme');
+  vme.textContent = (d.vme === null || d.vme === undefined) ? '--' : d.vme.toFixed(1) + ' В';
+  vme.style.color = (d.vme !== null && d.vme !== undefined && d.vme < 9.0) ? 'var(--red)' : '';
+
   var sta = document.getElementById("ws-sta");
   if (!d.ssid) { sta.textContent = "не задана"; sta.style.color = "var(--dim)"; }
   else if (d.sta)  { sta.textContent = d.ssid; sta.style.color = "var(--green)"; }
   else             { sta.textContent = d.ssid + " · нет связи"; sta.style.color = "var(--red)"; }
+}
+
+
+/* ═══════════════ ПОДСКАЗКИ ═══════════════
+
+   Это не аварии: нагрев не снимается, красным не мигаем. Но если плата
+   видит, что греет слабее обычного или что одна сторона отстаёт, молчать об
+   этом неправильно — зимой такое всплывёт в самый неподходящий момент.
+
+   Мороз держится сам и гаснет только при включении принудительного режима:
+   подсказка ровно про него. Остальные две гасятся тычком — посмотрел, убрал. */
+
+var hintHtml = '';
+
+function renderHints(d) {
+  var box = document.getElementById('hints');
+  var h = '';
+
+  /* Про мороз молчим, когда принудительный уже включён: совет исполнен. */
+  if (d.frost && !d.force) {
+    var t = d.csl ? '' : (d.cs === null || d.cs === undefined ? '' : ' ' + Math.round(d.cs) + '°');
+    h += '<div class="hint frost">МОРОЗ' + t + ' · МОЖЕТ ПОНАДОБИТЬСЯ ПРИНУДИТЕЛЬНЫЙ</div>';
+  }
+  if (d.wear)
+    h += '<div class="hint warn" onclick="clearHints()">НАГРЕВ СЛАБЕЕ ОБЫЧНОГО · ПОСМОТРИ ТЭНЫ И КОНТАКТЫ</div>';
+  if (d.spread)
+    h += '<div class="hint warn" onclick="clearHints()">СТОРОНЫ РАЗОШЛИСЬ · ПОСМОТРИ КОНТАКТЫ И ПРИЖИМ</div>';
+
+  if (h !== hintHtml) {
+    box.innerHTML = h;
+    hintHtml = h;
+    setTimeout(redrawBars, 0);   /* высота столбцов поменялась */
+  }
+  box.className = h ? 'hints on' : 'hints';
+}
+
+function clearHints() {
+  var b = bridge();
+  if (b && b.clearHints) b.clearHints();
+}
+
+
+/* Журнал в файл — только в программе на компьютере: телефону складывать
+   некуда, да и незачем. Кнопка показывается там же, где окно прошивки. */
+function saveLog() {
+  var b = bridge();
+  if (b && b.saveLog) b.saveLog(document.getElementById('log').textContent);
+}
+
+function resetVmin() {
+  var b = bridge();
+  if (b && b.resetVmin) b.resetVmin();
+}
+
+/* ═══════════════ КРИВАЯ ПРОГРЕВА ═══════════════
+
+   Приходит отдельным запросом, а не вместе с /api: она нужна, только когда
+   окно открыто, а полкилобайта в каждом опросе раз в секунду — впустую. */
+
+var curve = null;
+
+function askCurve() {
+  var b = bridge();
+  if (b && b.getCurve) b.getCurve();
+}
+
+/* Зовётся оболочкой с текстом ответа /curve */
+window.onCurve = function (txt) {
+  try { curve = JSON.parse(txt); } catch (e) { curve = null; }
+  drawCurve();
+};
+
+function drawCurve() {
+  var cv = document.getElementById('cv-canvas');
+  if (!cv || winNow !== 'curve') return;
+
+  /* canvas в CSS-пикселях меньше, чем в физических: без этого на телефоне
+     линии выходят мыльными */
+  var r = window.devicePixelRatio || 1;
+  var w = cv.clientWidth, h = cv.clientHeight;
+  if (!w || !h) return;
+  cv.width = Math.round(w * r);
+  cv.height = Math.round(h * r);
+
+  var g = cv.getContext('2d');
+  g.setTransform(r, 0, 0, r, 0, 0);
+  g.clearRect(0, 0, w, h);
+
+  var note = document.getElementById('cv-note');
+  var n = curve ? curve.n : 0;
+  if (!n) {
+    g.fillStyle = '#2a3550';
+    g.font = '11px monospace';
+    g.textAlign = 'center';
+    g.fillText('прогрева ещё не было', w / 2, h / 2);
+    return;
+  }
+
+  var PL = 26, PR = 30, PT = 8, PB = 16;      /* поля под подписи */
+  var iw = w - PL - PR, ih = h - PT - PB;
+  var tmax = 120, tmin = 0;
+
+  /* сетка по 20 градусов */
+  g.strokeStyle = '#141c2c';
+  g.fillStyle = '#2a3550';
+  g.font = '9px monospace';
+  g.lineWidth = 1;
+  for (var t = tmin; t <= tmax; t += 20) {
+    var y = PT + ih - (t - tmin) / (tmax - tmin) * ih;
+    g.beginPath(); g.moveTo(PL, y + 0.5); g.lineTo(PL + iw, y + 0.5); g.stroke();
+    g.textAlign = 'right';
+    g.fillText(String(t), PL - 4, y + 3);
+  }
+
+  /* уставка и отсечка — пунктиром, чтобы видеть, куда шли */
+  function dash(val, color) {
+    if (val === undefined || val === null) return;
+    var y = PT + ih - (val - tmin) / (tmax - tmin) * ih;
+    g.strokeStyle = color;
+    g.setLineDash([3, 3]);
+    g.beginPath(); g.moveTo(PL, y + 0.5); g.lineTo(PL + iw, y + 0.5); g.stroke();
+    g.setLineDash([]);
+  }
+  dash(curve.sp, '#0b4f58');
+  dash(curve.cut, '#5a4410');
+
+  var dx = (n > 1) ? iw / (n - 1) : 0;
+  function line(arr, color, isDuty) {
+    g.strokeStyle = color;
+    g.lineWidth = 2;
+    g.beginPath();
+    var started = false;
+    for (var i = 0; i < n; i++) {
+      var v = arr[i];
+      if (v === null || v === undefined) { started = false; continue; }
+      var val = isDuty ? (v / 100 * tmax) : v;   /* мощность кладём на ту же шкалу */
+      var x = PL + i * dx;
+      var y = PT + ih - (val - tmin) / (tmax - tmin) * ih;
+      if (!started) { g.moveTo(x, y); started = true; } else g.lineTo(x, y);
+    }
+    g.stroke();
+  }
+
+  g.lineWidth = 1;
+  line(curve.duty, '#1a3a6e', true);     /* мощность фоном, тусклее */
+  line(curve.pl, '#00f0d0');
+  line(curve.red, '#ff4444');
+
+  /* шкала времени */
+  g.fillStyle = '#2a3550';
+  g.textAlign = 'center';
+  g.font = '9px monospace';
+  var total = (n - 1) * (curve.dt || 10);
+  g.fillText('0', PL, h - 4);
+  g.fillText(fmtMinSec(total), PL + iw, h - 4);
+
+  /* правая шкала — проценты мощности */
+  g.textAlign = 'left';
+  g.fillStyle = '#1a3a6e';
+  g.fillText('100%', PL + iw + 4, PT + 8);
+
+  if (note) {
+    note.textContent = curve.run
+      ? 'Прогрев идёт, точек ' + n + '. Обновляется раз в десять секунд.'
+      : 'Последний прогрев, ' + fmtMinSec(total) + '. Кривая живёт до следующего пуска подогрева.';
+  }
+}
+
+
+/* Окно открыто — подтягиваем кривую. Точка на плате появляется раз в десять
+   секунд, чаще спрашивать нечего. Во время прогрева обновляем, после конца
+   прогрева хватает одного раза. */
+var curveAsked = 0;
+
+function curveTick(d) {
+  var period = (d && d.state === 2) ? 10000 : 60000;
+  if (!curve || Date.now() - curveAsked > period ||
+      (curve && d && d.curve !== undefined && d.curve !== curve.n)) {
+    curveAsked = Date.now();
+    askCurve();
+  }
+}
+
+function fmtMinSec(s) {
+  var m = Math.floor(s / 60);
+  var r = s % 60;
+  return m + ':' + (r < 10 ? '0' : '') + r;
 }
 
 /* ═══════════════ ПРИНУДИТЕЛЬНЫЙ НАГРЕВ ═══════════════
