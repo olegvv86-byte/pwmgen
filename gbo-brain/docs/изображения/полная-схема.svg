@@ -1,0 +1,347 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="1980" viewBox="0 0 1240 1980">
+<title>Подогреватель редуктора ГБО — полная принципиальная схема, 12 В</title>
+<style>
+  .wire { stroke:#16181d; stroke-width:1.6; fill:none; stroke-linecap:round; }
+  .dot  { fill:#16181d; }
+  .box  { stroke:#9aa3b2; stroke-width:1.3; fill:none; stroke-dasharray:5 4; }
+  .ic   { stroke:#16181d; stroke-width:1.6; fill:#f6f7f9; }
+  .h    { font:600 19px system-ui,"Segoe UI",sans-serif; fill:#16181d; }
+  .h2   { font:600 14px system-ui,"Segoe UI",sans-serif; fill:#16181d; }
+  .s    { font:12px system-ui,"Segoe UI",sans-serif; fill:#3d434e; }
+  .ss   { font:11px system-ui,"Segoe UI",sans-serif; fill:#6b7280; }
+  .n    { font:500 11px system-ui,"Segoe UI",sans-serif; fill:#0f766e; }
+  .nbox { fill:#ccfbf1; stroke:#0f766e; stroke-width:1; }
+  .w    { font:600 11px system-ui,"Segoe UI",sans-serif; fill:#b91c1c; }
+  .wh   { font:600 14px system-ui,"Segoe UI",sans-serif; fill:#b91c1c; }
+  .wbox { fill:#fef2f2; stroke:#b91c1c; stroke-width:1.3; }
+</style>
+<rect width="1240" height="1980" fill="#ffffff"/>
+
+<defs>
+  <marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+    <path d="M0,1 L8,4.5 L0,8 z" fill="#16181d"/>
+  </marker>
+</defs>
+
+<text class="h" x="40" y="42">Подогреватель редуктора ГБО — полная схема</text>
+<text class="s" x="40" y="62">12 В без повышающего преобразователя · нагреватели 20 А · ШИМ 1 кГц</text>
+
+<text class="h2" x="40" y="104">ЧАСТЬ 1 — управление, питание, датчики</text>
+
+<g class="wire">
+  <circle cx="62" cy="160" r="5"/><path d="M67 160 H110"/>
+  <rect x="110" y="152" width="40" height="16" rx="2"/>
+  <path d="M150 160 H185"/>
+  <path d="M185 151 V169 L207 160 z"/><path d="M207 149 V171"/>
+  <path d="M207 160 H1180"/>
+
+  <path d="M240 160 V196"/><path d="M224 196 H256 M224 204 H256"/>
+  <path d="M240 204 V224"/><path d="M228 224 H252 M232 230 H248 M236 236 H240"/>
+
+  <path d="M1000 160 V196"/><path d="M984 196 H1016 M984 204 H1016"/>
+  <path d="M1000 204 V224"/><path d="M988 224 H1012 M992 230 H1008 M996 236 H1000"/>
+  <path d="M1050 160 V196"/><path d="M1034 196 H1066 M1034 204 H1066"/>
+  <path d="M1050 204 V224"/><path d="M1038 224 H1062 M1042 230 H1058 M1046 236 H1050"/>
+  <path d="M1160 160 V198"/>
+  <path d="M1148 222 H1172 L1160 198 z"/><path d="M1146 228 L1146 222 L1174 222 L1174 216"/>
+  <path d="M1160 222 V252"/><path d="M1148 252 H1172 M1152 258 H1168 M1156 264 H1160"/>
+
+  <path d="M330 160 V244 H350"/>
+  <rect class="ic" x="350" y="210" width="140" height="68" rx="3"/>
+  <path d="M490 244 H540"/>
+  <path d="M420 278 V300"/><path d="M408 300 H432 M412 306 H428 M416 312 H420"/>
+  <path d="M540 244 V280"/><path d="M524 280 H556 M524 288 H556"/>
+  <path d="M540 288 V308"/><path d="M528 308 H552 M532 314 H548 M536 320 H540"/>
+  <path d="M540 244 H610"/>
+
+  <rect class="ic" x="610" y="205" width="260" height="435" rx="3"/>
+  <path d="M610 285 H580 V315"/><path d="M568 315 H592 M572 321 H588 M576 327 H580"/>
+
+  <path d="M870 244 H930" marker-end="url(#ar)"/>
+  <path d="M870 320 H930" marker-end="url(#ar)"/>
+  <path d="M870 360 H930" marker-end="url(#ar)"/>
+  <path d="M870 400 H930" marker-end="url(#ar)"/>
+  <path d="M870 440 H930" marker-end="url(#ar)"/>
+
+  <path d="M870 510 H960"/>
+  <rect x="960" y="502" width="40" height="16" rx="2"/>
+  <path d="M1000 510 H1035"/>
+  <path d="M1035 484 V536"/>
+  <path d="M1035 496 L1065 480 V450" marker-end="url(#ar)"/>
+  <path d="M1035 524 L1065 540 V566"/><path d="M1053 566 H1077 M1057 572 H1073 M1061 578 H1065"/>
+  <path d="M1018 510 V556"/><rect x="1010" y="556" width="16" height="36" rx="2"/>
+  <path d="M1018 592 V612"/><path d="M1006 612 H1030 M1010 618 H1026 M1014 624 H1018"/>
+
+  <path d="M870 555 H940 V700 H990"/>
+  <rect class="ic" x="990" y="670" width="170" height="70" rx="3"/>
+  <path d="M1100 160 V650 H1075 V670"/>
+  <path d="M1075 740 V764"/><path d="M1063 764 H1087 M1067 770 H1083 M1071 776 H1075"/>
+  <path d="M1160 700 H1205" marker-end="url(#ar)"/>
+
+  <path d="M870 600 H910"/>
+  <rect x="910" y="592" width="40" height="16" rx="2"/>
+  <path d="M950 600 H975"/>
+  <path d="M975 591 V609 L995 600 z"/><path d="M995 589 V611"/>
+  <path d="M995 600 H1015 V630"/><path d="M1003 630 H1027 M1007 636 H1023 M1011 642 H1015"/>
+
+  <path d="M300 160 V330"/>
+  <rect x="292" y="330" width="16" height="44" rx="2"/>
+  <path d="M300 374 V400"/>
+  <rect x="292" y="400" width="16" height="44" rx="2"/>
+  <path d="M300 444 V470"/><path d="M288 470 H312 M292 476 H308 M296 482 H300"/>
+  <path d="M300 400 H430" marker-end="url(#ar)"/>
+  <path d="M300 400 H250 V426"/><path d="M234 426 H266 M234 434 H266"/>
+  <path d="M250 434 V456"/><path d="M238 456 H262 M242 462 H258 M246 468 H250"/>
+  <path d="M380 400 V424"/>
+  <path d="M368 448 H392 L380 424 z"/><path d="M366 430 L366 424 L394 424 L394 418"/>
+  <path d="M380 448 V470"/><path d="M368 470 H392 M372 476 H388 M376 482 H380"/>
+</g>
+
+<g class="dot">
+  <circle cx="240" cy="160" r="2.5"/><circle cx="300" cy="160" r="2.5"/>
+  <circle cx="330" cy="160" r="2.5"/><circle cx="1000" cy="160" r="2.5"/>
+  <circle cx="1050" cy="160" r="2.5"/><circle cx="1100" cy="160" r="2.5"/>
+  <circle cx="1160" cy="160" r="2.5"/>
+  <circle cx="540" cy="244" r="2.5"/><circle cx="300" cy="400" r="2.5"/>
+  <circle cx="380" cy="400" r="2.5"/><circle cx="1018" cy="510" r="2.5"/>
+</g>
+
+<text class="s" x="52" y="144">X1</text>
+<text class="s" x="20" y="192">+12 В от замка</text>
+<text class="s" x="108" y="144">F1  2 А</text>
+<text class="s" x="178" y="196">D1 1N4007</text>
+<text class="s" x="262" y="194">C1 100 мкФ</text>
+<text class="s" x="560" y="146">+12 В — шина зажигания</text>
+<text class="s" x="1022" y="194">C4 10 мкФ</text>
+<text class="s" x="1072" y="212">C5 100 нФ</text>
+<text class="s" x="1182" y="214">D5</text>
+<text class="s" x="1182" y="230">SMBJ18A</text>
+
+<text class="s" x="358" y="240">U1  MP1584EN</text>
+<text class="ss" x="358" y="258">модуль 12 → 5 В</text>
+<text class="s" x="462" y="300">C2 100 мкФ</text>
+
+<text class="h2" x="624" y="232">U2   ESP32 DevKit V1</text>
+<text class="ss" x="624" y="250">30 выводов, WROOM-32</text>
+<text class="s" x="624" y="272">VIN 5 В</text>
+<text class="s" x="624" y="290">GND</text>
+<text class="s" x="822" y="248">3V3</text>
+<text class="s" x="800" y="324">GPIO32</text>
+<text class="s" x="800" y="364">GPIO33</text>
+<text class="s" x="800" y="404">GPIO34</text>
+<text class="s" x="800" y="444">GPIO35</text>
+<text class="s" x="800" y="514">GPIO19</text>
+<text class="s" x="800" y="559">GPIO18</text>
+<text class="s" x="800" y="604">GPIO2</text>
+
+<text class="s" x="936" y="248">+3,3 В</text>
+<text class="s" x="936" y="324">RT3 — пластина 1</text>
+<text class="s" x="936" y="364">RT4 — пластина 2</text>
+<text class="s" x="936" y="404">RT2 — редуктор</text>
+<text class="s" x="936" y="444">U бортсети</text>
+
+<text class="s" x="958" y="494">R6 1 к</text>
+<text class="s" x="1076" y="450">к катушке K1 (часть 2)</text>
+<text class="s" x="1080" y="524">Q1  BC337</text>
+<text class="s" x="1034" y="586">R7 10 к</text>
+<text class="s" x="906" y="582">R5 1 к</text>
+<text class="s" x="972" y="576">HL1</text>
+
+<text class="h2" x="998" y="698">U4  TC4420</text>
+<text class="ss" x="998" y="716">драйвер затвора</text>
+<text class="s" x="1110" y="146">VDD 12 В</text>
+<text class="s" x="1124" y="692">OUT</text>
+<text class="s" x="1000" y="792">к R8 / затвор Q2 (часть 2)</text>
+
+<text class="h2" x="40" y="326">Измерение бортсети</text>
+<text class="s" x="316" y="358">R3  22 к</text>
+<text class="s" x="316" y="428">R4  3,3 к</text>
+<text class="s" x="170" y="420">C3 100 нФ</text>
+<text class="s" x="402" y="444">D2  3,3 В</text>
+<text class="s" x="440" y="396">U бортсети</text>
+<rect class="nbox" x="316" y="300" width="232" height="18" rx="4"/>
+<text class="n" x="326" y="313">БЫЛО 10 к — СМ. ПРИМЕЧАНИЕ 4</text>
+
+<text class="h2" x="40" y="852">Термодатчики — три штуки, все по одной схеме</text>
+
+<g class="wire">
+  <path d="M150 900 H1020"/>
+
+  <path d="M220 900 V936"/><rect x="212" y="936" width="16" height="44" rx="2"/>
+  <path d="M220 980 V1006"/>
+  <path d="M220 1006 H246"/><rect x="246" y="998" width="42" height="16" rx="2"/>
+  <path d="M288 1006 H416" marker-end="url(#ar)"/>
+  <path d="M370 1006 V1032"/><path d="M358 1032 H382 M358 1040 H382"/>
+  <path d="M370 1040 V1080"/><path d="M358 1080 H382 M362 1086 H378 M366 1092 H374"/>
+  <path d="M220 1006 V1026"/><rect x="212" y="1026" width="16" height="46" rx="2"/>
+  <path d="M204 1068 L238 1022"/>
+  <path d="M220 1072 V1096"/><path d="M208 1096 H232 M212 1102 H228 M216 1108 H224"/>
+
+  <path d="M520 900 V936"/><rect x="512" y="936" width="16" height="44" rx="2"/>
+  <path d="M520 980 V1006"/>
+  <path d="M520 1006 H546"/><rect x="546" y="998" width="42" height="16" rx="2"/>
+  <path d="M588 1006 H716" marker-end="url(#ar)"/>
+  <path d="M670 1006 V1032"/><path d="M658 1032 H682 M658 1040 H682"/>
+  <path d="M670 1040 V1080"/><path d="M658 1080 H682 M662 1086 H678 M666 1092 H674"/>
+  <path d="M520 1006 V1026"/><rect x="512" y="1026" width="16" height="46" rx="2"/>
+  <path d="M504 1068 L538 1022"/>
+  <path d="M520 1072 V1096"/><path d="M508 1096 H532 M512 1102 H528 M516 1108 H524"/>
+
+  <path d="M820 900 V936"/><rect x="812" y="936" width="16" height="44" rx="2"/>
+  <path d="M820 980 V1006"/>
+  <path d="M820 1006 H846"/><rect x="846" y="998" width="42" height="16" rx="2"/>
+  <path d="M888 1006 H1016" marker-end="url(#ar)"/>
+  <path d="M970 1006 V1032"/><path d="M958 1032 H982 M958 1040 H982"/>
+  <path d="M970 1040 V1080"/><path d="M958 1080 H982 M962 1086 H978 M966 1092 H974"/>
+  <path d="M820 1006 V1026"/><rect x="812" y="1026" width="16" height="46" rx="2"/>
+  <path d="M804 1068 L838 1022"/>
+  <path d="M820 1072 V1096"/><path d="M808 1096 H832 M812 1102 H828 M816 1108 H824"/>
+</g>
+
+<g class="dot">
+  <circle cx="220" cy="900" r="2.5"/><circle cx="520" cy="900" r="2.5"/>
+  <circle cx="820" cy="900" r="2.5"/>
+  <circle cx="220" cy="1006" r="2.5"/><circle cx="520" cy="1006" r="2.5"/>
+  <circle cx="820" cy="1006" r="2.5"/>
+  <circle cx="370" cy="1006" r="2.5"/><circle cx="670" cy="1006" r="2.5"/>
+  <circle cx="970" cy="1006" r="2.5"/>
+</g>
+
+<text class="s" x="150" y="890">+3,3 В</text>
+
+<text class="s" x="238" y="962">R9  2,2 к</text>
+<text class="s" x="242" y="992">R12  10 к</text>
+<text class="s" x="250" y="1050">RT3  100 к</text>
+<text class="s" x="250" y="1066">B3950</text>
+<text class="s" x="388" y="1042">C7  10 нФ</text>
+<text class="s" x="422" y="1002">к GPIO32</text>
+
+<text class="s" x="538" y="962">R10  2,2 к</text>
+<text class="s" x="542" y="992">R13  10 к</text>
+<text class="s" x="550" y="1050">RT4  100 к</text>
+<text class="s" x="550" y="1066">B3950</text>
+<text class="s" x="688" y="1042">C8  10 нФ</text>
+<text class="s" x="722" y="1002">к GPIO33</text>
+
+<text class="s" x="838" y="962">R11  22 к</text>
+<text class="s" x="842" y="992">R14  10 к</text>
+<text class="s" x="850" y="1050">RT2</text>
+<text class="s" x="850" y="1066">из комплекта ГБО</text>
+<text class="s" x="988" y="1042">C9  10 нФ</text>
+<text class="s" x="1022" y="1002">к GPIO34</text>
+
+<rect class="nbox" x="240" y="1096" width="104" height="18" rx="4"/>
+<text class="n" x="250" y="1109">ЭТО ДОБАВЛЕНО</text>
+
+<text class="w" x="40" y="1134">R12…R14 и C7…C9 поставить ВПЛОТНУЮ К ПРОЦЕССОРУ, конденсатор — прямо на ножку. Старые 100 нФ у делителей СНЯТЬ: они слишком медленные, плата теперь меряет с погашенным ШИМ, и за 2,5 мс они не успевают.</text>
+
+<path d="M40 1150 H1200" stroke="#c7cdd6" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text class="h2" x="40" y="1194">ЧАСТЬ 2 — силовая цепь</text>
+
+<rect class="box" x="96" y="1226" width="312" height="232" rx="5"/>
+<rect class="box" x="520" y="1300" width="230" height="100" rx="5"/>
+<rect class="box" x="790" y="1330" width="412" height="252" rx="5"/>
+
+<g class="wire">
+  <circle cx="62" cy="1270" r="5"/><path d="M67 1270 H110"/>
+  <rect x="110" y="1262" width="42" height="16" rx="2"/>
+  <path d="M152 1270 H196"/>
+  <path d="M198 1268 L242 1252"/>
+  <path d="M246 1270 H960"/>
+
+  <rect x="170" y="1350" width="80" height="44" rx="2"/>
+  <path d="M240 1350 V1326" marker-end="url(#ar)"/>
+  <path d="M180 1394 V1420" marker-end="url(#ar)"/>
+  <path d="M250 1350 H300 V1372"/>
+  <path d="M288 1396 H312 L300 1372 z"/><path d="M288 1368 H312"/>
+  <path d="M300 1396 V1416 H250 V1394"/>
+
+  <path d="M560 1270 V1316 M610 1270 V1316 M660 1270 V1316 M710 1270 V1316"/>
+  <rect x="551" y="1316" width="18" height="46" rx="2"/>
+  <rect x="601" y="1316" width="18" height="46" rx="2"/>
+  <rect x="651" y="1316" width="18" height="46" rx="2"/>
+  <rect x="701" y="1316" width="18" height="46" rx="2"/>
+  <path d="M560 1362 V1416 M610 1362 V1416 M660 1362 V1416 M710 1362 V1416"/>
+  <path d="M560 1416 H960"/>
+
+  <path d="M960 1416 V1452"/>
+  <path d="M938 1442 V1498 M928 1442 V1498 M904 1470 H928"/>
+  <path d="M938 1452 H960 M938 1488 H960 M960 1488 V1534"/>
+  <path d="M938 1470 H956" marker-end="url(#ar)"/>
+  <path d="M800 1470 H830" marker-end="url(#ar)"/>
+  <rect x="834" y="1462" width="40" height="16" rx="2"/>
+  <path d="M874 1470 H904"/>
+  <path d="M890 1470 V1490"/><rect x="882" y="1490" width="16" height="36" rx="2"/>
+  <path d="M890 1526 V1534 H960"/>
+
+  <path d="M960 1416 H1080 V1452"/>
+  <path d="M1068 1476 H1092 L1080 1452 z"/><path d="M1066 1458 L1066 1452 L1094 1452 L1094 1446"/>
+  <path d="M1080 1476 V1534 H960"/>
+
+  <path d="M960 1534 V1600 H62"/>
+  <circle cx="52" cy="1600" r="5"/><path d="M57 1600 H62"/>
+  <path d="M48 1612 H76 M54 1619 H70 M59 1625 H65"/>
+</g>
+
+<g class="dot">
+  <circle cx="610" cy="1416" r="2.5"/><circle cx="660" cy="1416" r="2.5"/>
+  <circle cx="710" cy="1416" r="2.5"/>
+  <circle cx="610" cy="1270" r="2.5"/><circle cx="660" cy="1270" r="2.5"/>
+  <circle cx="710" cy="1270" r="2.5"/>
+  <circle cx="960" cy="1416" r="2.5"/><circle cx="960" cy="1534" r="2.5"/>
+  <circle cx="890" cy="1470" r="2.5"/>
+</g>
+
+<text class="s" x="52" y="1254">X2</text>
+<text class="s" x="22" y="1302">+12 В от АКБ</text>
+<text class="s" x="108" y="1254">F2  30 А</text>
+<text class="s" x="206" y="1244">K1  40 А</text>
+<text class="s" x="106" y="1344">K1 катушка 12 В</text>
+<text class="s" x="320" y="1390">D3 1N4007</text>
+<text class="s" x="258" y="1332">+12 В зажигания</text>
+<text class="s" x="136" y="1442">к коллектору Q1</text>
+<text class="s" x="104" y="1478">вынесено, у аккумулятора</text>
+
+<text class="s" x="538" y="1384">EK1</text>
+<text class="s" x="588" y="1384">EK2</text>
+<text class="s" x="638" y="1384">EK3</text>
+<text class="s" x="688" y="1384">EK4</text>
+<text class="s" x="524" y="1448">латунный блок 35 × 45</text>
+<text class="s" x="524" y="1466">4 × 2,4 Ом → 0,6 Ом,  20 А,  240 Вт</text>
+<text class="s" x="524" y="1484">по два элемента в пластине</text>
+
+<text class="s" x="778" y="1404">провод 4 мм²</text>
+<text class="s" x="796" y="1322">ПЛАТА</text>
+<text class="s" x="794" y="1498">от TC4420</text>
+<text class="s" x="834" y="1452">R8 47 Ом</text>
+<text class="s" x="828" y="1516">R9 10 к</text>
+<text class="s" x="968" y="1446">сток</text>
+<text class="s" x="968" y="1506">исток</text>
+<text class="s" x="796" y="1560">Q2  IRLB3034PBF  ·  1,4 Вт  ·  радиатор TO-220</text>
+
+<text class="s" x="1108" y="1446">D7</text>
+<text class="s" x="1108" y="1462">SMBJ18A</text>
+<text class="s" x="1108" y="1486">катод</text>
+<text class="s" x="1108" y="1502">к стоку</text>
+<rect class="nbox" x="1094" y="1392" width="104" height="18" rx="4"/>
+<text class="n" x="1104" y="1405">ЭТО ДОБАВЛЕНО</text>
+
+<text class="s" x="240" y="1592">исток Q2 и масса платы — в одну точку на клемме, дальше один провод к минусу АКБ</text>
+<text class="s" x="30" y="1584">−</text>
+<text class="s" x="26" y="1644">звезда</text>
+
+<text class="h2" x="40" y="1678">Примечания — в файле примечания.txt рядом со схемой</text>
+<rect class="wbox" x="40" y="1706" width="1160" height="238" rx="6"/>
+<text class="wh" x="62" y="1738">МОНТАЖ ПРОВОДКИ ДАТЧИКОВ — ЭТО ВАЖНЕЕ ЛЮБОГО КОНДЕНСАТОРА</text>
+
+<text class="w" x="62" y="1766">Провода датчиков НЕЛЬЗЯ мотать в один жгут с силовыми. Двадцать ампер, рвущиеся килогерцем, наводят в соседний провод помеху, и плата</text>
+<text class="w" x="62" y="1784">меряет не температуру, а помеху. Именно так и выглядит сбой: один канал уезжает вниз, второй начинает прыгать.</text>
+
+<text class="s" x="62" y="1818">1.  Расплести жгут. Датчики вести отдельной трассой, подальше от силовых. Если пересекаются — только под прямым углом, не вдоль.</text>
+<text class="s" x="62" y="1840">2.  На каждый датчик витая пара: сигнал и его собственный обратный провод. Обратные вести на массу платы, а не на кузов у нагревателей.</text>
+<text class="s" x="62" y="1862">3.  Экран, если есть, сажать на массу ТОЛЬКО со стороны платы. С двух сторон — получится виток, будет хуже, чем без экрана.</text>
+<text class="s" x="62" y="1884">4.  Проверить изоляцию: на холодную, при снятом питании, сопротивление от каждого провода датчика до металла пластины и до клемм</text>
+<text class="s" x="80" y="1902">нагревателей должно быть в мегомах. Килоомы — пробой, и через него в АЦП лезет 12 вольт с ШИМ. R12…R14 как раз от этого и страхуют.</text>
+<text class="s" x="62" y="1924">5.  Масса делителей и исток Q2 — в одну точку на клемме, а не на общей дорожке. См. примечание про звезду внизу силовой части.</text>
+
+</svg>
