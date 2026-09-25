@@ -169,6 +169,8 @@
 
   <path d="M220 900 V936"/><rect x="212" y="936" width="16" height="44" rx="2"/>
   <path d="M220 980 V1006"/>
+  <path d="M220 1006 H174 V1032"/><path d="M158 1032 H190 M158 1040 H190"/>
+  <path d="M174 1040 V1062"/><path d="M162 1062 H186 M166 1068 H182 M170 1074 H178"/>
   <path d="M220 1006 H246"/><rect x="246" y="998" width="42" height="16" rx="2"/>
   <path d="M288 1006 H416" marker-end="url(#ar)"/>
   <path d="M370 1006 V1032"/><path d="M358 1032 H382 M358 1040 H382"/>
@@ -179,6 +181,8 @@
 
   <path d="M520 900 V936"/><rect x="512" y="936" width="16" height="44" rx="2"/>
   <path d="M520 980 V1006"/>
+  <path d="M520 1006 H474 V1032"/><path d="M458 1032 H490 M458 1040 H490"/>
+  <path d="M474 1040 V1062"/><path d="M462 1062 H486 M466 1068 H482 M470 1074 H478"/>
   <path d="M520 1006 H546"/><rect x="546" y="998" width="42" height="16" rx="2"/>
   <path d="M588 1006 H716" marker-end="url(#ar)"/>
   <path d="M670 1006 V1032"/><path d="M658 1032 H682 M658 1040 H682"/>
@@ -189,6 +193,8 @@
 
   <path d="M820 900 V936"/><rect x="812" y="936" width="16" height="44" rx="2"/>
   <path d="M820 980 V1006"/>
+  <path d="M820 1006 H774 V1032"/><path d="M758 1032 H790 M758 1040 H790"/>
+  <path d="M774 1040 V1062"/><path d="M762 1062 H786 M766 1068 H782 M770 1074 H778"/>
   <path d="M820 1006 H846"/><rect x="846" y="998" width="42" height="16" rx="2"/>
   <path d="M888 1006 H1016" marker-end="url(#ar)"/>
   <path d="M970 1006 V1032"/><path d="M958 1032 H982 M958 1040 H982"/>
@@ -210,30 +216,33 @@
 <text class="s" x="150" y="890">+3,3 В</text>
 
 <text class="s" x="238" y="962">R9  2,2 к</text>
+<text class="ss" x="112" y="1028">100 нФ</text>
 <text class="s" x="242" y="992">R12  10 к</text>
 <text class="s" x="250" y="1050">RT3  100 к</text>
 <text class="s" x="250" y="1066">B3950</text>
-<text class="s" x="388" y="1042">C7  10 нФ</text>
-<text class="s" x="422" y="1002">к GPIO32</text>
+<text class="ss" x="392" y="1054">C7  10 нФ</text>
+<text class="s" x="422" y="996">к GPIO32</text>
 
 <text class="s" x="538" y="962">R10  2,2 к</text>
+<text class="ss" x="412" y="1028">100 нФ</text>
 <text class="s" x="542" y="992">R13  10 к</text>
 <text class="s" x="550" y="1050">RT4  100 к</text>
 <text class="s" x="550" y="1066">B3950</text>
-<text class="s" x="688" y="1042">C8  10 нФ</text>
-<text class="s" x="722" y="1002">к GPIO33</text>
+<text class="ss" x="692" y="1054">C8  10 нФ</text>
+<text class="s" x="722" y="996">к GPIO33</text>
 
 <text class="s" x="838" y="962">R11  22 к</text>
+<text class="ss" x="712" y="1028">100 нФ</text>
 <text class="s" x="842" y="992">R14  10 к</text>
 <text class="s" x="850" y="1050">RT2</text>
 <text class="s" x="850" y="1066">из комплекта ГБО</text>
-<text class="s" x="988" y="1042">C9  10 нФ</text>
-<text class="s" x="1022" y="1002">к GPIO34</text>
+<text class="ss" x="992" y="1054">C9  10 нФ</text>
+<text class="s" x="1022" y="996">к GPIO34</text>
 
 <rect class="nbox" x="240" y="1096" width="104" height="18" rx="4"/>
 <text class="n" x="250" y="1109">ЭТО ДОБАВЛЕНО</text>
 
-<text class="w" x="40" y="1134">R12…R14 и C7…C9 поставить ВПЛОТНУЮ К ПРОЦЕССОРУ, конденсатор — прямо на ножку. Старые 100 нФ у делителей СНЯТЬ: они слишком медленные, плата теперь меряет с погашенным ШИМ, и за 2,5 мс они не успевают.</text>
+<text class="w" x="40" y="1134">ОБЯЗАТЕЛЬНО только R12…R14. Конденсаторы 100 нФ на делителях ОСТАЮТСЯ КАК ЕСТЬ, менять их не надо. C7…C9 — по желанию, годится всё от 1 до 22 нФ; без них тоже работает. Ставить вплотную к процессору.</text>
 
 <path d="M40 1150 H1200" stroke="#c7cdd6" stroke-width="1.5" stroke-dasharray="7 5"/>
 <text class="h2" x="40" y="1194">ЧАСТЬ 2 — силовая цепь</text>
