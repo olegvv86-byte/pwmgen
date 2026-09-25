@@ -458,6 +458,9 @@ html.pc #panel-log .log { height: 72px; }
 }
 .hint.frost { color: #ff8a1f; background: #2a1606; border: 1px solid #5a3410; }
 .hint.warn  { color: var(--yellow); background: #221d0a; border: 1px solid #4a3f14; cursor: pointer; }
+.hint.bad   { color: var(--red); background: #2a0808; border: 1px solid #5a1414;
+              font-weight: bold; animation: hintblink 1s infinite; }
+@keyframes hintblink { 0%, 60% { opacity: 1; } 80% { opacity: 0.45; } 100% { opacity: 1; } }
 .hint.warn:active { opacity: 0.6; }
 
 /* окно кривой прогрева */
@@ -1447,6 +1450,15 @@ var hintHtml = '';
 function renderHints(d) {
   var box = document.getElementById('hints');
   var h = '';
+
+  /* Слепой нагрев: ни одна пластина не в диапазоне измерения. Плата режет
+     мощность и через отведённое время встанет в аварию, но человек должен
+     узнать об этом сразу, а не гадать, почему температура не растёт. */
+  if (d.blind && d.state === 2) {
+    var left = (d.blindL === undefined || d.blindL === null) ? '' :
+               ' · ОТКЛЮЧУСЬ ЧЕРЕЗ ' + d.blindL + ' с';
+    h += '<div class="hint bad">ДАТЧИКИ ПЛАСТИН НЕ МЕРЯТ · ГРЕЮ ВСЛЕПУЮ НА ПОНИЖЕННОЙ' + left + '</div>';
+  }
 
   /* Про мороз молчим, когда принудительный уже включён: совет исполнен. */
   if (d.frost && !d.force) {
