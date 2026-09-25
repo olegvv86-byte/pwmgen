@@ -444,6 +444,7 @@ html.pc #panel-log .log { height: 72px; }
 .fask-title.hot { color: var(--red); }
 .fask-text { font-size: 12px; color: var(--text); line-height: 1.6; }
 .f-btn.hot { color: var(--red); border-color: #5a2020; background: #2a0808; }
+.f-btn.on { color: var(--yellow); border-color: #4a3f14; background: #221d0a; }
 
 
 
@@ -728,6 +729,11 @@ html.pc #panel-log .log { height: 72px; }
     <div class="wf-now" id="wf-now">Сейчас аварий нет</div>
     <div class="wf-last" id="wf-last"></div>
     <div class="wf-log" id="wf-log"></div>
+    <div class="ws-note" style="margin-top:10px">Датчик пластины может отваливаться
+      на горячую: на холодную мерит честно, с какой-то температуры замолкает. Тогда
+      можно разрешить работу по ОДНОМУ датчику — плата не встанет в аварию, пока
+      второй мерит. Защита при этом остаётся только по нему.</div>
+    <button class="f-btn ghost" id="solo-btn" onclick="toggleSolo()">ОДИН ДАТЧИК: ЗАПРЕЩЕНО</button>
   </div>
 
   <!-- кривая последнего прогрева -->
@@ -1379,6 +1385,7 @@ function renderReady(d) {
 }
 
 function renderFaults(d) {
+  drawSolo(!!d.solo);
   var now = document.getElementById('wf-now');
   if (d.latched) {
     now.className = 'wf-now bad';
@@ -1460,6 +1467,14 @@ function renderHints(d) {
     h += '<div class="hint bad">ДАТЧИКИ ПЛАСТИН НЕ МЕРЯТ · ГРЕЮ ВСЛЕПУЮ НА ПОНИЖЕННОЙ' + left + '</div>';
   }
 
+  /* Идём на одном датчике. Не авария, но знать об этом надо постоянно:
+     вторая сторона сейчас никем не контролируется. */
+  if (d.solo && d.state === 2 && !d.blind &&
+      (d.p1 === null || d.p1 === undefined || d.p2 === null || d.p2 === undefined)) {
+    var side = (d.p1 === null || d.p1 === undefined) ? 'А' : 'Б';
+    h += '<div class="hint warn">СТОРОНА ' + side + ' НЕ МЕРИТ · ИДУ ПО ОДНОМУ ДАТЧИКУ</div>';
+  }
+
   /* Про мороз молчим, когда принудительный уже включён: совет исполнен. */
   if (d.frost && !d.force) {
     var t = d.csl ? '' : (d.cs === null || d.cs === undefined ? '' : ' ' + Math.round(d.cs) + '°');
@@ -1489,6 +1504,21 @@ function clearHints() {
 function saveLog() {
   var b = bridge();
   if (b && b.saveLog) b.saveLog(document.getElementById('log').textContent);
+}
+
+/* Работа по одному датчику. Включается осознанно и живёт в памяти платы. */
+function toggleSolo() {
+  var b = bridge();
+  if (!b || !b.setSolo) return;
+  var on = document.getElementById('solo-btn').className.indexOf('on') < 0;
+  b.setSolo(on);
+  drawSolo(on);
+}
+
+function drawSolo(on) {
+  var el = document.getElementById('solo-btn');
+  el.className = on ? 'f-btn ghost on' : 'f-btn ghost';
+  el.textContent = on ? 'ОДИН ДАТЧИК: РАЗРЕШЕНО' : 'ОДИН ДАТЧИК: ЗАПРЕЩЕНО';
 }
 
 function resetVmin() {

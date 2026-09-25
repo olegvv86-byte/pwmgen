@@ -96,6 +96,7 @@ window.AndroidGBO = {
   getCurve:   function(){ _gbo({m:'getCurve'}); },
   clearHints: function(){ _gbo({m:'clearHints'}); },
   resetVmin:  function(){ _gbo({m:'resetVmin'}); },
+  setSolo:    function(on){ _gbo({m:'setSolo',on:!!on}); },
   saveLog:    function(t){ _gbo({m:'saveLog',t:String(t||'')}); }
 };";
 
@@ -213,6 +214,10 @@ window.AndroidGBO = {
 
             case "resetVmin":
                 await _board.Set("vmin=0");
+                break;
+
+            case "setSolo":
+                await _board.Set("solo=" + (m.GetProperty("on").GetBoolean() ? 1 : 0));
                 break;
 
             case "saveLog":
