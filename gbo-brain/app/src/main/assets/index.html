@@ -729,11 +729,6 @@ html.pc #panel-log .log { height: 72px; }
     <div class="wf-now" id="wf-now">Сейчас аварий нет</div>
     <div class="wf-last" id="wf-last"></div>
     <div class="wf-log" id="wf-log"></div>
-    <div class="ws-note" style="margin-top:10px">Датчик пластины может отваливаться
-      на горячую: на холодную мерит честно, с какой-то температуры замолкает. Тогда
-      можно разрешить работу по ОДНОМУ датчику — плата не встанет в аварию, пока
-      второй мерит. Защита при этом остаётся только по нему.</div>
-    <button class="f-btn ghost" id="solo-btn" onclick="toggleSolo()">ОДИН ДАТЧИК: ЗАПРЕЩЕНО</button>
   </div>
 
   <!-- кривая последнего прогрева -->
@@ -1385,7 +1380,6 @@ function renderReady(d) {
 }
 
 function renderFaults(d) {
-  drawSolo(!!d.solo);
   var now = document.getElementById('wf-now');
   if (d.latched) {
     now.className = 'wf-now bad';
@@ -1458,21 +1452,17 @@ function renderHints(d) {
   var box = document.getElementById('hints');
   var h = '';
 
-  /* Слепой нагрев: ни одна пластина не в диапазоне измерения. Плата режет
-     мощность и через отведённое время встанет в аварию, но человек должен
-     узнать об этом сразу, а не гадать, почему температура не растёт. */
+  /* Пластины ещё не вошли в диапазон измерения. Ниже 47 °C так и должно
+     быть при каждом холодном пуске, поэтому спокойным жёлтым: мигать красным
+     на штатное состояние — верный способ отучить человека смотреть на экран.
+     Красным становится, когда время на исходе: вот это уже не норма. */
   if (d.blind && d.state === 2) {
-    var left = (d.blindL === undefined || d.blindL === null) ? '' :
-               ' · ОТКЛЮЧУСЬ ЧЕРЕЗ ' + d.blindL + ' с';
-    h += '<div class="hint bad">ДАТЧИКИ ПЛАСТИН НЕ МЕРЯТ · ГРЕЮ ВСЛЕПУЮ НА ПОНИЖЕННОЙ' + left + '</div>';
-  }
-
-  /* Идём на одном датчике. Не авария, но знать об этом надо постоянно:
-     вторая сторона сейчас никем не контролируется. */
-  if (d.solo && d.state === 2 && !d.blind &&
-      (d.p1 === null || d.p1 === undefined || d.p2 === null || d.p2 === undefined)) {
-    var side = (d.p1 === null || d.p1 === undefined) ? 'А' : 'Б';
-    h += '<div class="hint warn">СТОРОНА ' + side + ' НЕ МЕРИТ · ИДУ ПО ОДНОМУ ДАТЧИКУ</div>';
+    var left = (d.blindL === undefined || d.blindL === null || !d.blindL) ? 0 : d.blindL;
+    var hot = (left > 0 && left < 60);
+    var txt = 'ПЛАСТИНЫ ЕЩЁ ХОЛОДНЫЕ · ГРЕЮ ВСЛЕПУЮ, ПОЛНАЯ МОЩНОСТЬ';
+    if (hot) txt = 'ПЛАСТИНЫ ТАК И НЕ ЗАМЕРИЛИСЬ · АВАРИЯ ЧЕРЕЗ ' + left + ' с';
+    else if (left) txt += ' · ЖДУ ЕЩЁ ' + fmtMinSec(left);
+    h += '<div class="hint ' + (hot ? 'bad' : 'warn') + '">' + txt + '</div>';
   }
 
   /* Про мороз молчим, когда принудительный уже включён: совет исполнен. */
@@ -1504,21 +1494,6 @@ function clearHints() {
 function saveLog() {
   var b = bridge();
   if (b && b.saveLog) b.saveLog(document.getElementById('log').textContent);
-}
-
-/* Работа по одному датчику. Включается осознанно и живёт в памяти платы. */
-function toggleSolo() {
-  var b = bridge();
-  if (!b || !b.setSolo) return;
-  var on = document.getElementById('solo-btn').className.indexOf('on') < 0;
-  b.setSolo(on);
-  drawSolo(on);
-}
-
-function drawSolo(on) {
-  var el = document.getElementById('solo-btn');
-  el.className = on ? 'f-btn ghost on' : 'f-btn ghost';
-  el.textContent = on ? 'ОДИН ДАТЧИК: РАЗРЕШЕНО' : 'ОДИН ДАТЧИК: ЗАПРЕЩЕНО';
 }
 
 function resetVmin() {

@@ -219,17 +219,6 @@ public class MainActivity extends Activity {
             });
         }
 
-        /** Разрешить работу по одному датчику пластин. */
-        @JavascriptInterface
-        public void setSolo(final boolean on) {
-            final String h = host;
-            if (h == null) return;
-            cmdPool.execute(new Runnable() {
-                @Override
-                public void run() { httpGet("http://" + h + "/set?solo=" + (on ? 1 : 0), TO_POLL); }
-            });
-        }
-
         /** Погасить подсказки про слабый нагрев и перекос сторон. */
         @JavascriptInterface
         public void clearHints() {
