@@ -345,7 +345,8 @@ const uint8_t  GOOD_NEEDED = 5;
 const float IGN_THR = 6.0;
 
 const float VSUP  = 3.272;
-const float EMA_K = 0.2;
+const float EMA_K     = 0.2;    // пластины, читаются пять раз в секунду
+const float EMA_K_RED = 0.5;    // редуктор, под нагревом читается раз в секунду
 
 // Делитель бортсети. v3 держала здесь 4.03, но замер показал на выводе 2,45 В
 // при 12,67 В питания — то есть делитель 5,17, и плата занижала напряжение на
@@ -588,8 +589,13 @@ void readSensor(Sensor &s) {
   float t = 1.0 / (1.0 / 298.15 + log(r / s.ntc->r25) / s.ntc->beta) - 273.15;
   if (t < T_MIN_PHYS || t > T_MAX_PHYS) { s.st = SENS_FAIL; s.valid = false; s.good = 0; return; }
 
+  /* Сглаживание. Редуктору дают коэффициент побольше: под нагревом он
+     читается раз в секунду, а не пять, и с общим 0,2 показание тянулось бы
+     за настоящей температурой секунды четыре. На управление это не влияло бы
+     (полградуса при отсечке 60), но на экране число отставало бы заметно. */
+  float k = (s.faultCode == 3) ? EMA_K_RED : EMA_K;
   if (!s.seeded || s.st != SENS_OK) { s.t = t; s.seeded = true; }
-  else s.t += EMA_K * (t - s.t);
+  else s.t += k * (t - s.t);
   s.st = SENS_OK; s.valid = true; s.coldSince = 0;
   if (s.good < GOOD_NEEDED) s.good++;
 }
