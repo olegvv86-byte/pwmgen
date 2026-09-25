@@ -9,6 +9,12 @@
     <RootNamespace>GboHeater</RootNamespace>
     <ApplicationIcon>app.ico</ApplicationIcon>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <!-- WebView2Loader.dll — нативная библиотека, и в однофайловую сборку она по
+         умолчанию НЕ попадает: рядом с exe должен лежать ещё и dll. Программу
+         таскают по папкам, dll теряется, и exe падает при запуске. С этим
+         флагом она зашивается внутрь и распаковывается во временную папку
+         сама. Файл один, и класть его можно куда угодно. -->
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2957.106" />
