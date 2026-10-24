@@ -34,7 +34,7 @@ channel       = 0         # 0=CH1/CH2, 1=CH3
 
 ch3_linked    = True
 ch3_carrier   = 1000
-ch3_period_divider = 1    # H3: 1=каждый период CH1, 2..20000=каждый N-й
+ch3_period_divider = 1    # PD: 1=каждый период CH1, 2..20=каждый N-й
 _ch3_sm1_freq = 125000000 # частота SM5/SM7 (для перезапуска без apply_ch3)
 
 CH3_COUNT_MIN = 1
@@ -151,14 +151,12 @@ def prog_ch3_static():
     wrap()
 
 
-def make_prog_ch3(hi_ticks, lo_ticks, invert=False, sync_pin=None, div_bits=None):
+def make_prog_ch3(hi_ticks, lo_ticks, invert=False, sync_pin=None):
     """Пачка CH3 с делителем периодов CH1.
     Синхропин задаётся через in_base каждой SM (wait(..., pin, 0)), а не
     абсолютным gpio — поэтому SM5 и SM7 (X2) используют ОДНУ программу.
     Это критично: CYW43 (WiFi) тоже занимает память инструкций PIO1,
     и две копии по 15 инструкций её переполняли."""
-    if div_bits is None:
-        div_bits = _ch3_div_bits   # всегда та же ширина поля, что и в _ch3_make_word
     hi = max(0, min(31, hi_ticks - 1))
     lo = max(0, min(31, lo_ticks - 1))
     pin_hi = 0 if invert else 1
@@ -176,7 +174,7 @@ def make_prog_ch3(hi_ticks, lo_ticks, invert=False, sync_pin=None, div_bits=None
         out(y, 32)        # Y = count-1 (один раз при старте)
 
         wrap_target()
-        # Слово = (phase << div_bits) + (divider-1). PIO ХРАНИТ его в ISR
+        # Слово = (phase << 5) | (divider-1). PIO ХРАНИТ последнее слово в ISR
         # и НИКОГДА не блокируется: pull(noblock) при пустом FIFO берёт X,
         # а в X перед этим положено старое слово. Раньше pull(block) вставал
         # на пустом FIFO (GC / запись flash / медленный фидер), после чего
@@ -185,7 +183,7 @@ def make_prog_ch3(hi_ticks, lo_ticks, invert=False, sync_pin=None, div_bits=None
         mov(x, isr)       # X = предыдущее слово (запасной вариант)
         pull(noblock)     # OSR = новое слово или X
         mov(isr, osr)     # ISR = текущее слово (переживает весь цикл)
-        out(x, div_bits)  # X = divider-1, в OSR остаётся phase
+        out(x, 5)         # X = divider-1, в OSR остаётся phase
         label("sync_loop")
         wait(0, pin, 0)   # pin 0 относительно in_base этой SM
         wait(1, pin, 0)
@@ -211,38 +209,12 @@ def make_prog_ch3(hi_ticks, lo_ticks, invert=False, sync_pin=None, div_bits=None
 
 PIO1_CTRL_SET = 0x50300000 + 0x2000   # атомарный SET-алиас PIO1 CTRL
 PIO1_SM3_PINCTRL = 0x50300000 + 0x124  # PINCTRL машины SM7
-# Слово для PIO: (phase << div_bits) | (divider-1).
-# Размер поля делителя НЕ фиксирован: фазе нужно уместить период CH1 в тиках
-# SM, всё остальное уходит под пропуски. F1 ~10 кГц -> период ~6000 тиков
-# (13 бит) -> делителю 19 бит; F1 10 Гц -> период ~12.5 млн (24 бита) ->
-# делителю 8 бит. Так большие пропуски не отнимают разрядность у фазы.
-CH3_DIV_BITS_MIN = 5
-CH3_DIV_BITS_MAX = 20
-CH3_DIV_HARD_MAX = 20000         # потолок пропусков
-_ch3_div_bits = 9                # текущий размер поля делителя в слове
-
-
-def _ch3_calc_div_bits(ch1_period_ticks):
-    """Сколько бит слова отдать делителю при данном периоде CH1."""
-    ph_bits = max(1, int(ch1_period_ticks)).bit_length()
-    bits = 32 - ph_bits
-    if bits < CH3_DIV_BITS_MIN:
-        bits = CH3_DIV_BITS_MIN
-    if bits > CH3_DIV_BITS_MAX:
-        bits = CH3_DIV_BITS_MAX
-    return bits
-
-
-def _ch3_div_max():
-    """Предел делителя при текущем размере поля."""
-    return min(CH3_DIV_HARD_MAX, 1 << _ch3_div_bits)
-
+CH3_PHASE_MASK = (1 << 27) - 1
 
 def _ch3_make_word(phase_ticks):
-    """Упаковка для PIO: младшие _ch3_div_bits = divider-1, старшие = phase."""
-    db = _ch3_div_bits
-    ph = max(1, min((1 << (32 - db)) - 1, phase_ticks))
-    return (ph << db) | ((ch3_period_divider - 1) & ((1 << db) - 1))
+    """Упаковка для PIO: младшие 5 бит = divider-1, старшие 27 = phase."""
+    ph = max(1, min(CH3_PHASE_MASK, phase_ticks))
+    return (ph << 5) | ((ch3_period_divider - 1) & 0x1F)
 
 
 def make_prog_ch3_x2(hi_ticks, lo_ticks, invert=False):
@@ -397,7 +369,6 @@ def apply_ch3():
     global sm1, sm1_b2, ch3_rebuilding, _ch3_loaded_prog, _ch3_loaded_prog_x2
     global _ch3_dirty, _ch3_phase_base, _ch3_sm1_freq
     global _cached_ph1, _cached_ph1_b2, _ch3_last_word, _ch3_last_word_b2
-    global _ch3_div_bits, ch3_period_divider
     ch3_rebuilding = True
     time.sleep_ms(2)
     if sm1 is not None:
@@ -441,13 +412,7 @@ def apply_ch3():
     phase_raw = max(0, (ch1_period_ticks * local_pct) // 1000 - 6)
     phase_ticks = max(1, phase_raw)
 
-    # Ширина поля делителя под текущий период CH1 (остальное — фазе)
-    _ch3_div_bits = _ch3_calc_div_bits(ch1_period_ticks)
-    if ch3_period_divider > _ch3_div_max():
-        ch3_period_divider = _ch3_div_max()
-
-    _ch3_loaded_prog = make_prog_ch3(hi_ticks, lo_ticks, invert=inv,
-                                     div_bits=_ch3_div_bits)
+    _ch3_loaded_prog = make_prog_ch3(hi_ticks, lo_ticks, invert=inv)
 
     _ch3_sm1_freq = sm1_freq
 
@@ -503,7 +468,7 @@ def _ch3_set_divider(val):
     С X2: SM5 и SM7 подхватили бы новое значение в разные циклы и пара
     разъехалась бы навсегда -> синхронный перезапуск через apply_ch3()."""
     global ch3_period_divider
-    new = max(1, min(_ch3_div_max(), val))
+    new = max(1, min(21, val))
     if new == ch3_period_divider:
         return
     ch3_period_divider = new
@@ -1090,7 +1055,7 @@ def load_settings():
         ch3_x2        = s.get("ch3_x2", ch3_x2)
         ch3_linked    = s.get("ch3_linked", ch3_linked)
         ch3_carrier   = s.get("ch3_carrier", ch3_carrier)
-        ch3_period_divider = max(1, min(CH3_DIV_HARD_MAX, s.get("ch3_pd", 1)))
+        ch3_period_divider = max(1, min(21, s.get("ch3_pd", 1)))
         inv           = s.get("inv", inv)
         pll_on        = s.get("pll_on", False)
         pll_target    = s.get("pll_target", 0)
@@ -1110,7 +1075,7 @@ def load_settings():
 
 def send_status():
     global pll_diag_min, pll_diag_max, pll_diag_cnt
-    sys.stdout.write('{"f1":'+str(freq)+',"d1":'+str(duty)+',"f3":'+str(ch3_freq)+',"d3":'+str(ch3_duty)+',"n3":'+str(ch3_count)+',"p3":'+str(ch3_phase_pct)+',"x2":'+str(1 if ch3_x2 else 0)+',"iv":'+str(1 if inv else 0)+',"pl":'+str(1 if pll_on else 0)+',"lk":'+str(1 if ch3_linked else 0)+',"fc":'+str(ch3_carrier)+',"ph":'+str(pll_phase_now)+',"tgt":'+str(pll_target)+',"rw":'+str(pll_phase_raw)+',"pm":'+str(pll_mode)+',"mn":'+str(pll_diag_min)+',"mx":'+str(pll_diag_max)+',"cn":'+str(pll_diag_cnt)+',"pd":'+str(ch3_period_divider - 1)+',"h3":'+str(ch3_period_divider - 1)+',"hm":'+str(_ch3_div_max() - 1)+'}\n')
+    sys.stdout.write('{"f1":'+str(freq)+',"d1":'+str(duty)+',"f3":'+str(ch3_freq)+',"d3":'+str(ch3_duty)+',"n3":'+str(ch3_count)+',"p3":'+str(ch3_phase_pct)+',"x2":'+str(1 if ch3_x2 else 0)+',"iv":'+str(1 if inv else 0)+',"pl":'+str(1 if pll_on else 0)+',"lk":'+str(1 if ch3_linked else 0)+',"fc":'+str(ch3_carrier)+',"ph":'+str(pll_phase_now)+',"tgt":'+str(pll_target)+',"rw":'+str(pll_phase_raw)+',"pm":'+str(pll_mode)+',"mn":'+str(pll_diag_min)+',"mx":'+str(pll_diag_max)+',"cn":'+str(pll_diag_cnt)+',"pd":'+str(ch3_period_divider - 1)+',"h3":'+str(ch3_period_divider - 1)+'}\n')
     pll_diag_min = 0
     pll_diag_max = 0
     pll_diag_cnt = 0
@@ -1339,7 +1304,7 @@ def process_cmd(line):
     if not cmd:
         return
     if cmd == "VER":
-        _reply('VER:10_34:2026-09-11:main.py'); return
+        _reply('VER:10_32:2026-09-11:main.py'); return
     if cmd == "ST:1":
         _paused = True; print('*** PAUSED ***'); return
     if cmd == "ST:0":
@@ -1396,17 +1361,8 @@ def process_cmd(line):
             else:
                 changed3 = True
     elif key == "H3":
-        # Приложение: 0 = бить каждый период, 1 = через один, N = через N
+        # Приложение: 0 = бить каждый период, 1 = через один, ... 20 = через 20
         _ch3_set_divider(val + 1)
-        _save_defer()
-        send_status()
-        return
-    elif key == "HF":
-        # Частота повторения пачек в Гц -> делитель периодов CH1.
-        # Делитель = F1 / Гц с округлением к ближайшему, предел 1..CH3_DIV_MAX.
-        # Реально достижимый диапазон: от F1/CH3_DIV_MAX до F1.
-        hz = max(1, val)
-        _ch3_set_divider(max(1, (freq + hz // 2) // hz))
         _save_defer()
         send_status()
         return
@@ -1581,7 +1537,7 @@ try:
     apply_ch3()
     if pll_on:
         pll_init()
-    print("FW 10_34")
+    print("FW 10_32")
 except Exception as e:
     print("BOOT ERR:", e)
 try:
@@ -1671,7 +1627,7 @@ _wifi_status_dirty = False
 _WIFI_HEAVY_PREFIX = ('F3:', 'D3:', 'FC:')
 
 def _status_json():
-    return '{"f1":'+str(freq)+',"d1":'+str(duty)+',"f3":'+str(ch3_freq)+',"d3":'+str(ch3_duty)+',"n3":'+str(ch3_count)+',"p3":'+str(ch3_phase_pct)+',"x2":'+str(1 if ch3_x2 else 0)+',"iv":'+str(1 if inv else 0)+',"pl":'+str(1 if pll_on else 0)+',"lk":'+str(1 if ch3_linked else 0)+',"fc":'+str(ch3_carrier)+',"ph":'+str(pll_phase_now)+',"tgt":'+str(pll_target)+',"pm":'+str(pll_mode)+',"pd":'+str(ch3_period_divider - 1)+',"h3":'+str(ch3_period_divider - 1)+',"hm":'+str(_ch3_div_max() - 1)+'}\n'
+    return '{"f1":'+str(freq)+',"d1":'+str(duty)+',"f3":'+str(ch3_freq)+',"d3":'+str(ch3_duty)+',"n3":'+str(ch3_count)+',"p3":'+str(ch3_phase_pct)+',"x2":'+str(1 if ch3_x2 else 0)+',"iv":'+str(1 if inv else 0)+',"pl":'+str(1 if pll_on else 0)+',"lk":'+str(1 if ch3_linked else 0)+',"fc":'+str(ch3_carrier)+',"ph":'+str(pll_phase_now)+',"tgt":'+str(pll_target)+',"pm":'+str(pll_mode)+',"pd":'+str(ch3_period_divider - 1)+',"h3":'+str(ch3_period_divider - 1)+'}\n'
 
 def send_status_wifi(force=False):
     global tcp_client, _last_wifi_reply_ms, _wifi_status_dirty
@@ -1780,10 +1736,6 @@ def _ch3_recalc():
         sm1f = min(SYS_CLK, ch3_freq * (hi_t + lo_t + 2))
         ch1_pt = sm1f // freq
 
-        if _ch3_calc_div_bits(ch1_pt) != _ch3_div_bits:
-            apply_ch3()   # сменилась ширина поля делителя -> пересобрать программу
-            return
-
         local_pct = ch3_phase_pct - _ch3_phase_base
         if local_pct < 0: local_pct = 0
         phase_raw = max(0, (ch1_pt * local_pct) // 1000 - 6)
@@ -1799,7 +1751,7 @@ def _ch3_recalc():
         pass
 
 def _ch3_push():
-    """Отправка слова (phase<<div_bits + divider-1) в SM5/SM7 — ТОЛЬКО при изменении.
+    """Отправка слова (phase<<5 | divider-1) в SM5/SM7 — ТОЛЬКО при изменении.
     PIO хранит последнее слово сам, поэтому постоянная докормка и второе ядро
     больше не нужны. Кладём только в пустой FIFO: в очереди максимум одно
     слово, PIO всегда получает самое свежее значение."""
