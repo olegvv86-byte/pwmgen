@@ -151,12 +151,14 @@ def prog_ch3_static():
     wrap()
 
 
-def make_prog_ch3(hi_ticks, lo_ticks, invert=False, sync_pin=None, div_bits=9):
+def make_prog_ch3(hi_ticks, lo_ticks, invert=False, sync_pin=None, div_bits=None):
     """Пачка CH3 с делителем периодов CH1.
     Синхропин задаётся через in_base каждой SM (wait(..., pin, 0)), а не
     абсолютным gpio — поэтому SM5 и SM7 (X2) используют ОДНУ программу.
     Это критично: CYW43 (WiFi) тоже занимает память инструкций PIO1,
     и две копии по 15 инструкций её переполняли."""
+    if div_bits is None:
+        div_bits = _ch3_div_bits   # всегда та же ширина поля, что и в _ch3_make_word
     hi = max(0, min(31, hi_ticks - 1))
     lo = max(0, min(31, lo_ticks - 1))
     pin_hi = 0 if invert else 1
@@ -1797,7 +1799,7 @@ def _ch3_recalc():
         pass
 
 def _ch3_push():
-    """Отправка слова (phase<<5 | divider-1) в SM5/SM7 — ТОЛЬКО при изменении.
+    """Отправка слова (phase<<div_bits + divider-1) в SM5/SM7 — ТОЛЬКО при изменении.
     PIO хранит последнее слово сам, поэтому постоянная докормка и второе ядро
     больше не нужны. Кладём только в пустой FIFO: в очереди максимум одно
     слово, PIO всегда получает самое свежее значение."""

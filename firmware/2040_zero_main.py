@@ -150,11 +150,13 @@ def prog_ch3_static():
     wrap()
 
 
-def make_prog_ch3(hi_ticks, lo_ticks, invert=False, sync_pin=None, div_bits=9):
+def make_prog_ch3(hi_ticks, lo_ticks, invert=False, sync_pin=None, div_bits=None):
     """ОДНА пачка за wrap-цикл. sync_pin выбирается динамически:
     фаза <50% → GPIO0 (norm) / GPIO1 (inv),
     фаза >=50% → GPIO1 (norm) / GPIO0 (inv).
     Задержка всегда <50% периода → пачка не вылезает за период → нет мерцания."""
+    if div_bits is None:
+        div_bits = _ch3_div_bits   # всегда та же ширина поля, что и в _ch3_make_word
     hi = max(0, min(31, hi_ticks - 1))
     lo = max(0, min(31, lo_ticks - 1))
     pin_hi = 0 if invert else 1
@@ -392,7 +394,7 @@ def apply_ch3():
     sm1 = StateMachine(5, _ch3_loaded_prog, freq=sm1_freq, set_base=Pin(4))
     sm1.put(ch3_count - 1)
 
-    # Одно слово (phase<<5 | divider-1) — дальше PIO хранит его сам,
+    # Одно слово (phase<<div_bits + divider-1) — дальше PIO хранит его сам,
     # обновления шлёт _ch3_push() только при изменении.
     _w = _ch3_make_word(phase_ticks)
     sm1.put(_w)
@@ -1355,7 +1357,7 @@ def _ch3_recalc():
         pass
 
 def _ch3_push():
-    """Отправка слова (phase<<5 | divider-1) в SM5/SM7 — ТОЛЬКО при изменении.
+    """Отправка слова (phase<<div_bits + divider-1) в SM5/SM7 — ТОЛЬКО при изменении.
     PIO хранит последнее слово сам, поэтому постоянная докормка и второе ядро
     больше не нужны. Кладём только в пустой FIFO: в очереди максимум одно
     слово, PIO всегда получает самое свежее значение."""

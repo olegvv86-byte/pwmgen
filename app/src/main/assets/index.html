@@ -780,6 +780,7 @@ function onH3Slider(v) {
   document.getElementById('sv-h3').textContent = fmtH3(S.h3);
   updateH3Info();
   throttleSend('h3', 'H3:'+S.h3+'\n', HEAVY_CMD_MS);
+  schedScopeSlider();   // пропуски видны на осциллографе — перерисовываем
 }
 
 function h3Step(d, ev) {
@@ -830,6 +831,23 @@ function applyH3Freq() {
   const hz = h3HzClamped();
   h3HzTarget = hz;
   try { localStorage.setItem('h3hz', String(hz)); } catch(e) {}
+
+  // Считаем делитель тем же способом, что и прошивка, и применяем сразу —
+  // не дожидаясь ответа платы. Иначе до прихода статуса (или вовсе без
+  // связи) картинка и подписи остаются старыми. Придёт статус — поправит.
+  if (S.freq > 0) {
+    let d = Math.round(S.freq / hz);
+    if (d < 1) d = 1;
+    if (d > h3MaxSkips() + 1) d = h3MaxSkips() + 1;
+    S.h3 = d - 1;
+    const sl = document.getElementById('sl-h3');
+    if (parseInt(sl.max) < S.h3) sl.max = String(S.h3);
+    sl.value = S.h3;
+    document.getElementById('sv-h3').textContent = fmtH3(S.h3);
+  }
+  updateH3Info();
+  schedScope();
+
   flushAllThrottles();
   sendRaw('HF:'+hz+'\n');
   closeH3Freq();
