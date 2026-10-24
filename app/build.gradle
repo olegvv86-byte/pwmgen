@@ -10,8 +10,8 @@ android {
         applicationId "com.pwmgen"
         minSdk 24
         targetSdk 35
-        versionCode 11
-        versionName "1.7.0-hf"
+        versionCode 12
+        versionName "1.7.1-hf"
     }
 
     buildTypes {

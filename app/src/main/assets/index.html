@@ -869,6 +869,84 @@ document.addEventListener('touchend', e => {
   el.addEventListener('pointerdown', () => { sliderActive = true; uiGestureActive = true; });
 });
 
+// ─── Мышь: завершение перетаскивания ───
+// На телефоне это делает touchend. С мышью его нет, поэтому без этого
+// обработчика sliderActive оставался бы взведённым и статус от платы
+// перестал бы применяться.
+function finishSliderDrag(id) {
+  flushAllThrottles();
+  sendFinalForSlider(id);
+  setTimeout(() => {
+    sliderActive = false;
+    uiGestureActive = false;
+    updateSum();
+    schedScope();
+  }, 100);
+}
+
+function sendFinalForSlider(id) {
+  if (id === 'sl-n3') sendRaw('N3:'+S.n3+'\n');
+  else if (id === 'sl-h3') sendRaw('H3:'+S.h3+'\n');
+  else if (id === 'sl-ph') sendRaw('P3:'+S.ph+'\n');
+  else if (id === 'sl-d3') sendRaw('D3:'+S.d3+'\n');
+  else if (id === 'sl-freq') sendRaw('F1:'+S.freq+'\n');
+  else if (id === 'sl-duty') sendRaw('D1:'+S.duty+'\n');
+  else if (id === 'sl-f3') {
+    if (ch3SubMode === 1) sendRaw('FC:'+S.fc+'\n');
+    else sendRaw('F3:'+S.f3+'\n');
+  }
+}
+
+document.addEventListener('mouseup', e => {
+  if (e.target && e.target.type === 'range') finishSliderDrag(e.target.id);
+});
+
+// ─── Колесо мыши над ползунком ───
+// Шаг ±1, с Shift ±10. Слушаем строку целиком: у неактивных ползунков
+// CH3 стоит pointer-events:none, и до самого ползунка событие не дошло бы.
+// Наведённая строка автоматически становится активной.
+const CH3P_ROW = { 'sl-ph': 'ph', 'sl-n3': 'n3', 'sl-h3': 'h3' };
+
+// Мышь: наведение на строку CH3 сразу делает её активной.
+// На телефоне блокировка соседних строк нужна против случайных касаний,
+// но с мышью она только мешает — курсор уже показывает намерение.
+Object.keys(CH3P_ROW).forEach(id => {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const row = el.closest('.slider-row');
+  if (!row) return;
+  row.addEventListener('pointerover', e => {
+    if (e.pointerType === 'mouse' && ch3pActive !== CH3P_ROW[id]) {
+      setCh3pActive(CH3P_ROW[id]);
+    }
+  });
+});
+
+['sl-freq','sl-duty','sl-f3','sl-d3','sl-ph','sl-n3','sl-h3'].forEach(id => {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const row = el.closest('.slider-row') || el;
+  row.addEventListener('wheel', e => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (CH3P_ROW[id] && ch3pActive !== CH3P_ROW[id]) setCh3pActive(CH3P_ROW[id]);
+    const mn = parseFloat(el.min), mx = parseFloat(el.max);
+    const step = (parseFloat(el.step) || 1) * (e.shiftKey ? 10 : 1);
+    let v = (parseFloat(el.value) || 0) + (e.deltaY < 0 ? step : -step);
+    v = Math.max(mn, Math.min(mx, v));
+    if (v === parseFloat(el.value)) return;
+    el.value = v;
+    el.dispatchEvent(new Event('input'));   // вызовет onXSlider — отправка и отрисовка
+    if (_wheelFinalT) clearTimeout(_wheelFinalT);
+    _wheelFinalT = setTimeout(() => {
+      _wheelFinalT = null;
+      flushAllThrottles();
+      sendFinalForSlider(id);
+    }, 180);
+  }, {passive: false});
+});
+let _wheelFinalT = null;
+
 function addSliderSend(id, cmdFn) {
   const el = document.getElementById(id);
   el.addEventListener('touchend', () => {
