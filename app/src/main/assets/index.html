@@ -361,6 +361,8 @@ input[type=range].cyan::-webkit-slider-thumb { background: var(--cyan); box-shad
       <div class="step-row" id="row-h3-cap">
         <span class="step-label" id="cap-h3" style="width:auto;line-height:22px;color:var(--dim)">Пропуск периодов</span>
         <button class="step-btn" id="btn-h3-hz" onclick="openH3Freq()" style="flex:0 0 52px">Гц…</button>
+        <button class="step-btn" id="btn-h3-center" onclick="centerBurst()"
+                title="Поймать пачку CH3 и вывести её в центр" style="flex:0 0 58px">⊙ центр</button>
         <span class="step-label" id="cap-h3-info"
               style="width:auto;flex:1;text-align:right;line-height:22px;color:var(--dim)">пачка каждый период</span>
       </div>
@@ -792,6 +794,32 @@ function h3Step(d, ev) {
   onH3Slider(v);
   flushThrottle('h3');
   sendRaw('H3:'+S.h3+'\n');
+}
+
+// ─── Поймать пачку CH3 и вывести её в центр экрана ───
+// При редких пачках на узкой развёртке пачка почти всегда за экраном.
+// Кнопка подбирает развёртку под длительность пачки и сдвигает картинку так,
+// чтобы пачка встала посередине: видно и фазу относительно CH1, и сколько
+// импульсов в пачке. Дальше фаза двигает пачку по экрану, CH1/CH2 стоят.
+function centerBurst() {
+  const cv = document.getElementById('scope');
+  const W = cv.width;
+  const periodSec = 1 / Math.max(1, S.freq);
+  const burstSec  = Math.max(1, S.n3) / Math.max(1, S.f3);
+  let winSec = 2 * periodSec;
+  if (burstSec * 3 > winSec) winSec = burstSec * 3;
+  timeScale = Math.max(0.00001, Math.min(500, (5 / 20000) / winSec));
+
+  const windowTime = 5 / 20000 / timeScale;
+  const cycles = Math.max(0.5, windowTime * S.freq);
+  const cw = W / cycles;
+  const spacing = cw * (S.h3 + 1);
+  const phOff = S.ph / 1000 * cw;
+  const firstBurst = (phOff % spacing) - spacing;
+  const impW = Math.max(2, cw / (S.f3 / Math.max(1, S.freq)));
+  const burstW = Math.max(impW, S.n3 * impW);
+  viewStart = -(W / 2 - firstBurst - burstW / 2) / W;
+  schedScope();
 }
 
 // ─── Окно ввода частоты пачек ───
@@ -1305,7 +1333,7 @@ function drawScopeInner() {
 
   // ─── Draw PWM wave ───
   // phaseShift: 0 = нет сдвига, 0.5 = противофаза
-  function drawPWM(yTop, duty, color, cycles, phaseShift) {
+  function drawPWM(yTop, duty, color, cycles, phaseShift, panPx) {
     const cw = W / cycles;
     // Сильный зумаут: период уже тоньше пикселя, отдельные импульсы не
     // разрешаются — рисуем сплошную заливку, как на настоящем осциллографе.
@@ -1320,7 +1348,9 @@ function drawScopeInner() {
       ctx.stroke();
       return;
     }
-    const phOff = (phaseShift || 0) * cw;
+    // CH1/CH2 периодичны — смещение берём по модулю периода, картинка та же
+    const panMod = panPx ? (((panPx % cw) + cw) % cw) : 0;
+    const phOff = (phaseShift || 0) * cw + panMod;
     ctx.strokeStyle = color; ctx.lineWidth = 2 * dpr;
     if (useShadow) { ctx.shadowColor = color; ctx.shadowBlur = 3 * dpr; }
     ctx.beginPath();
@@ -1339,7 +1369,7 @@ function drawScopeInner() {
   }
 
   // ─── Draw burst (CH3) — с ограничением числа операций для телефона ───
-  function drawBurst(yTop, duty3, color, count, phase, cycles, spacingPx) {
+  function drawBurst(yTop, duty3, color, count, phase, cycles, spacingPx, panPx) {
     const cw = W / cycles;
     if (spacingPx === undefined) spacingPx = cw;
     const phOff = phase / 1000 * cw;
@@ -1351,8 +1381,11 @@ function drawScopeInner() {
     const freqRatio = S.f3 / S.freq;
     const impW = Math.max(2, cw / freqRatio);
     const hiW3 = impW * duty3 / 100;
-    const firstBurst = (phOff % spacingPx) - spacingPx;
-    const maxBursts = Math.min(100, Math.ceil((W + spacingPx * 2) / spacingPx));
+    // Смещение картинки (кнопка «центр» и перетаскивание). Сетка пачек
+    // повторяется через spacingPx, поэтому сдвиг берём по модулю шага.
+    const shift = panPx ? (((panPx % spacingPx) + spacingPx) % spacingPx) : 0;
+    const firstBurst = (phOff % spacingPx) - spacingPx + shift;
+    const maxBursts = Math.min(100, Math.ceil((W + spacingPx * 2) / spacingPx) + 1);
     const maxOps = 2000;
     let ops = 0;
 
@@ -1453,8 +1486,10 @@ function drawScopeInner() {
       4*dpr, 14*dpr);
   } else {
     // Обычный режим — 3 канала
-    drawPWM(0,      S.duty, '#00ff88', cycles, 0);
-    drawPWM(rowH,   S.duty, '#ff6600', cycles, 0.5);
+    // Смещение картинки: кнопка «центр» и перетаскивание
+    const panPx = -viewStart * W;
+    drawPWM(0,      S.duty, '#00ff88', cycles, 0,   panPx);
+    drawPWM(rowH,   S.duty, '#ff6600', cycles, 0.5, panPx);
 
     // В свободном режиме шаг между пачками = период FC
     // В привязанном — период CH1 (передаём undefined, drawBurst подставит cw)
@@ -1469,10 +1504,10 @@ function drawScopeInner() {
     }
 
     // CH3 пачки — если X2 то вторая пачка со сдвигом 50% периода CH1
-    drawBurst(rowH*2, S.d3, '#00aaff', S.n3, S.ph, cycles, burstSpacing);
+    drawBurst(rowH*2, S.d3, '#00aaff', S.n3, S.ph, cycles, burstSpacing, panPx);
     if (x2Active) {
       const ph2 = (S.ph + 500) % 1000;
-      drawBurst(rowH*2, S.d3, '#aa44ff', S.n3, ph2, cycles, burstSpacing);
+      drawBurst(rowH*2, S.d3, '#aa44ff', S.n3, ph2, cycles, burstSpacing, panPx);
     }
   }
 

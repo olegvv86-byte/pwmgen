@@ -396,6 +396,9 @@ input[type=range].wheel-armed::-moz-range-thumb {
       <div class="step-row" id="row-h3-cap">
         <span class="step-label" style="width:auto;line-height:22px;color:var(--dim)">Пропуск периодов</span>
         <button class="step-btn" id="btn-h3-hz" onclick="openH3Freq()" style="flex:0 0 60px">Гц…</button>
+        <button class="step-btn" id="btn-h3-center" onclick="centerBurst()"
+                title="Поймать пачку CH3 и вывести её в центр экрана"
+                style="flex:0 0 72px">⊙ центр</button>
         <span class="step-label" id="cap-h3-info"
               style="width:auto;flex:1;text-align:right;line-height:22px;color:var(--dim)">пачка каждый период</span>
       </div>
@@ -711,6 +714,33 @@ function h3Step(d, ev) {
   onH3Slider(v);
   flushThrottle('h3');
   sendRaw('H3:'+S.h3+'\n');
+}
+
+// ─── Поймать пачку CH3 и вывести её в центр экрана ───
+// При редких пачках (единицы и десятки герц) на узкой развёртке пачка почти
+// всегда оказывается за экраном. Кнопка подбирает развёртку под длительность
+// пачки и сдвигает картинку так, чтобы пачка встала посередине — видно и фазу
+// относительно CH1, и сколько импульсов в пачке.
+function centerBurst() {
+  const cv = document.getElementById('scope');
+  const W = cv.width;
+  const periodSec = 1 / Math.max(1, S.freq);
+  const burstSec  = Math.max(1, S.n3) / Math.max(1, S.f3);
+  // окно: два периода CH1, но не меньше трёх длительностей пачки
+  let winSec = 2 * periodSec;
+  if (burstSec * 3 > winSec) winSec = burstSec * 3;
+  timeScale = Math.max(0.00001, Math.min(500, (5 / 20000) / winSec));
+
+  // повторяем расчёт отрисовки, чтобы узнать, где окажется пачка
+  const windowTime = 5 / 20000 / timeScale;
+  const cycles = Math.max(0.5, windowTime * S.freq);
+  const cw = W / cycles;
+  const phOff = S.ph / 1000 * cw;
+  const firstBurst = (phOff % cw) - cw;
+  const impW = Math.max(2, cw / (S.f3 / Math.max(1, S.freq)));
+  const burstW = Math.max(impW, S.n3 * impW);
+  viewStart = -(W / 2 - firstBurst - burstW / 2) / W;
+  drawScope();
 }
 
 // ─── Окно ввода частоты пачек ───
@@ -1106,7 +1136,15 @@ function initScopeWheelZoom() {
     e.stopPropagation();
     const factor = e.deltaY < 0 ? 1.15 : (1 / 1.15);
     // Нижний предел 1e-5: окно развёртки до ~25 с, чтобы видеть пачки от 1 Гц
+    const prev = timeScale;
     timeScale = Math.max(0.00001, Math.min(500, timeScale * factor));
+    // Точка в центре экрана остаётся на месте — иначе найденная кнопкой
+    // «центр» пачка уезжает при первом повороте колеса
+    const Wc = document.getElementById('scope').width;
+    const k = timeScale / prev;
+    let panPx = -viewStart * Wc;
+    panPx = Wc / 2 - (Wc / 2 - panPx) * k;
+    viewStart = -panPx / Wc;
     drawScope();
   }, { passive: false });
 }
@@ -1207,7 +1245,7 @@ function drawScope() {
 
   // ─── Draw PWM wave ───
   // phaseShift: 0 = нет сдвига, 0.5 = противофаза
-  function drawPWM(yTop, duty, color, cycles, phaseShift) {
+  function drawPWM(yTop, duty, color, cycles, phaseShift, panPx) {
     const cw = W / cycles;
     // Сильный зумаут: период тоньше пикселя — рисуем сплошную заливку,
     // чтобы на фоне непрерывных CH1/CH2 были видны редкие пачки CH3
@@ -1221,7 +1259,10 @@ function drawScope() {
       ctx.stroke(); ctx.shadowBlur = 0;
       return;
     }
-    const phOff = (phaseShift || 0) * cw;
+    // CH1/CH2 периодичны, поэтому смещение достаточно взять по модулю периода —
+    // картинка та же, а лишних витков цикла нет
+    const panMod = panPx ? (((panPx % cw) + cw) % cw) : 0;
+    const phOff = (phaseShift || 0) * cw + panMod;
     ctx.strokeStyle = color; ctx.lineWidth = 2 * devicePixelRatio;
     ctx.shadowColor = color; ctx.shadowBlur = 3 * devicePixelRatio;
     ctx.beginPath();
@@ -1241,7 +1282,7 @@ function drawScope() {
   // spacingPx — расстояние между началами пачек в пикселях.
   //   В привязанном режиме = период CH1 (cw)
   //   В свободном  режиме  = период FC
-  function drawBurst(yTop, duty3, color, count, phase, cycles, spacingPx) {
+  function drawBurst(yTop, duty3, color, count, phase, cycles, spacingPx, panPx) {
     const cw = W / cycles;
     if (spacingPx === undefined) spacingPx = cw;
     // Фаза задана в промилле от периода CH1 (в свободном режиме фазы по CH1 нет,
@@ -1260,9 +1301,14 @@ function drawScope() {
     const firstBurst = (phOff % spacingPx) - spacingPx;
 
     const skipPer = (S.h3 || 0) + 1;
-    for (let i = 0; i * spacingPx + firstBurst < W + spacingPx * 2; i++) {
-      if (i % skipPer !== 0) continue;  // пропуск периодов (H3)
-      const bStart = firstBurst + i * spacingPx;
+    // Горизонтальное смещение картинки (кнопка «центр» и перетаскивание).
+    // Сетка пачек повторяется через skipPer периодов, поэтому сдвиг
+    // приводим к одному шагу сетки — иначе пришлось бы крутить лишние циклы.
+    const grid = spacingPx * skipPer;
+    const shift = panPx ? (((panPx % grid) + grid) % grid) : 0;
+    for (let i = -skipPer; i * spacingPx + firstBurst + shift < W + spacingPx * 2; i++) {
+      if ((((i % skipPer) + skipPer) % skipPer) !== 0) continue;  // пропуск периодов (H3)
+      const bStart = firstBurst + i * spacingPx + shift;
       for (let j = 0; j < count; j++) {
         const ix = bStart + j * impW;
         if (ix + hiW3 > 0 && ix < W) {
@@ -1351,8 +1397,10 @@ function drawScope() {
       4*devicePixelRatio, 14*devicePixelRatio);
   } else {
     // Обычный режим — 3 канала
-    drawPWM(0,      S.duty, '#00ff88', cycles, 0);
-    drawPWM(rowH,   S.duty, '#ff6600', cycles, 0.5);
+    // Горизонтальное смещение картинки: кнопка «центр» и перетаскивание
+    const panPx = -viewStart * W;
+    drawPWM(0,      S.duty, '#00ff88', cycles, 0,   panPx);
+    drawPWM(rowH,   S.duty, '#ff6600', cycles, 0.5, panPx);
 
     // В свободном режиме шаг между пачками = период FC
     // В привязанном — период CH1 (передаём undefined, drawBurst подставит cw)
@@ -1367,11 +1415,11 @@ function drawScope() {
     // пропуск удваивается (при H3=1 на экране выходило бы через 3).
 
     // CH3 пачки — если X2 то вторая пачка со сдвигом 50% периода CH1
-    drawBurst(rowH*2, S.d3, '#00aaff', S.n3, S.ph, cycles, burstSpacing);
+    drawBurst(rowH*2, S.d3, '#00aaff', S.n3, S.ph, cycles, burstSpacing, panPx);
     if (x2Active) {
       // Вторая пачка сдвинута на 50% периода CH1 (в фазу CH2)
       const ph2 = (S.ph + 500) % 1000;
-      drawBurst(rowH*2, S.d3, '#aa44ff', S.n3, ph2, cycles, burstSpacing);
+      drawBurst(rowH*2, S.d3, '#aa44ff', S.n3, ph2, cycles, burstSpacing, panPx);
     }
   }
 
