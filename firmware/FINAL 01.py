@@ -220,11 +220,20 @@ CH3_DIV_BITS_MIN = 5
 CH3_DIV_BITS_MAX = 20
 CH3_DIV_HARD_MAX = 20000         # потолок пропусков
 _ch3_div_bits = 9                # текущий размер поля делителя в слове
+_boot_err = ''                   # диагностика: ошибка инициализации
+_ch3_err  = ''                   # диагностика: ошибка обновления CH3
 
 
 def _ch3_calc_div_bits(ch1_period_ticks):
-    """Сколько бит слова отдать делителю при данном периоде CH1."""
-    ph_bits = max(1, int(ch1_period_ticks)).bit_length()
+    """Сколько бит слова отдать делителю при данном периоде CH1.
+    Разрядность считаем сдвигами: в MicroPython у int нет bit_length()."""
+    n = int(ch1_period_ticks)
+    if n < 1:
+        n = 1
+    ph_bits = 0
+    while n:
+        ph_bits += 1
+        n >>= 1
     bits = 32 - ph_bits
     if bits < CH3_DIV_BITS_MIN:
         bits = CH3_DIV_BITS_MIN
@@ -1110,7 +1119,7 @@ def load_settings():
 
 def send_status():
     global pll_diag_min, pll_diag_max, pll_diag_cnt
-    sys.stdout.write('{"f1":'+str(freq)+',"d1":'+str(duty)+',"f3":'+str(ch3_freq)+',"d3":'+str(ch3_duty)+',"n3":'+str(ch3_count)+',"p3":'+str(ch3_phase_pct)+',"x2":'+str(1 if ch3_x2 else 0)+',"iv":'+str(1 if inv else 0)+',"pl":'+str(1 if pll_on else 0)+',"lk":'+str(1 if ch3_linked else 0)+',"fc":'+str(ch3_carrier)+',"ph":'+str(pll_phase_now)+',"tgt":'+str(pll_target)+',"rw":'+str(pll_phase_raw)+',"pm":'+str(pll_mode)+',"mn":'+str(pll_diag_min)+',"mx":'+str(pll_diag_max)+',"cn":'+str(pll_diag_cnt)+',"pd":'+str(ch3_period_divider - 1)+',"h3":'+str(ch3_period_divider - 1)+',"hm":'+str(_ch3_div_max() - 1)+'}\n')
+    sys.stdout.write('{"f1":'+str(freq)+',"d1":'+str(duty)+',"f3":'+str(ch3_freq)+',"d3":'+str(ch3_duty)+',"n3":'+str(ch3_count)+',"p3":'+str(ch3_phase_pct)+',"x2":'+str(1 if ch3_x2 else 0)+',"iv":'+str(1 if inv else 0)+',"pl":'+str(1 if pll_on else 0)+',"lk":'+str(1 if ch3_linked else 0)+',"fc":'+str(ch3_carrier)+',"ph":'+str(pll_phase_now)+',"tgt":'+str(pll_target)+',"rw":'+str(pll_phase_raw)+',"pm":'+str(pll_mode)+',"mn":'+str(pll_diag_min)+',"mx":'+str(pll_diag_max)+',"cn":'+str(pll_diag_cnt)+',"pd":'+str(ch3_period_divider - 1)+',"h3":'+str(ch3_period_divider - 1)+',"hm":'+str(_ch3_div_max() - 1)+',"db":'+str(_ch3_div_bits)+',"c3":'+str(1 if sm1 is not None else 0)+'}\n')
     pll_diag_min = 0
     pll_diag_max = 0
     pll_diag_cnt = 0
@@ -1338,8 +1347,10 @@ def process_cmd(line):
         return
     if not cmd:
         return
+    if cmd == "ERR":
+        _reply('ERR:' + _boot_err + '|' + _ch3_err); return
     if cmd == "VER":
-        _reply('VER:10_34:2026-09-11:main.py'); return
+        _reply('VER:10_34_HF:2026-10-24:main.py'); return
     if cmd == "ST:1":
         _paused = True; print('*** PAUSED ***'); return
     if cmd == "ST:0":
@@ -1581,8 +1592,9 @@ try:
     apply_ch3()
     if pll_on:
         pll_init()
-    print("FW 10_34")
+    print("FW 10_34_HF")
 except Exception as e:
+    _boot_err = repr(e)
     print("BOOT ERR:", e)
 try:
     send_status()
@@ -1671,7 +1683,7 @@ _wifi_status_dirty = False
 _WIFI_HEAVY_PREFIX = ('F3:', 'D3:', 'FC:')
 
 def _status_json():
-    return '{"f1":'+str(freq)+',"d1":'+str(duty)+',"f3":'+str(ch3_freq)+',"d3":'+str(ch3_duty)+',"n3":'+str(ch3_count)+',"p3":'+str(ch3_phase_pct)+',"x2":'+str(1 if ch3_x2 else 0)+',"iv":'+str(1 if inv else 0)+',"pl":'+str(1 if pll_on else 0)+',"lk":'+str(1 if ch3_linked else 0)+',"fc":'+str(ch3_carrier)+',"ph":'+str(pll_phase_now)+',"tgt":'+str(pll_target)+',"pm":'+str(pll_mode)+',"pd":'+str(ch3_period_divider - 1)+',"h3":'+str(ch3_period_divider - 1)+',"hm":'+str(_ch3_div_max() - 1)+'}\n'
+    return '{"f1":'+str(freq)+',"d1":'+str(duty)+',"f3":'+str(ch3_freq)+',"d3":'+str(ch3_duty)+',"n3":'+str(ch3_count)+',"p3":'+str(ch3_phase_pct)+',"x2":'+str(1 if ch3_x2 else 0)+',"iv":'+str(1 if inv else 0)+',"pl":'+str(1 if pll_on else 0)+',"lk":'+str(1 if ch3_linked else 0)+',"fc":'+str(ch3_carrier)+',"ph":'+str(pll_phase_now)+',"tgt":'+str(pll_target)+',"pm":'+str(pll_mode)+',"pd":'+str(ch3_period_divider - 1)+',"h3":'+str(ch3_period_divider - 1)+',"hm":'+str(_ch3_div_max() - 1)+',"db":'+str(_ch3_div_bits)+',"c3":'+str(1 if sm1 is not None else 0)+'}\n'
 
 def send_status_wifi(force=False):
     global tcp_client, _last_wifi_reply_ms, _wifi_status_dirty
@@ -1933,8 +1945,8 @@ while True:
 
     try:
         _ch3_push()   # новая фаза/делитель CH3 -> PIO (только при изменении)
-    except:
-        pass
+    except Exception as e:
+        _ch3_err = repr(e)
     if _dbg_sm is not None:
         try: _dbg_tick()
         except Exception as e: print("DBG tick ERR:", e)

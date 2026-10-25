@@ -212,8 +212,15 @@ _ch3_div_bits = 9                # текущий размер поля дели
 
 
 def _ch3_calc_div_bits(ch1_period_ticks):
-    """Сколько бит слова отдать делителю при данном периоде CH1."""
-    ph_bits = max(1, int(ch1_period_ticks)).bit_length()
+    """Сколько бит слова отдать делителю при данном периоде CH1.
+    Разрядность считаем сдвигами: в MicroPython у int нет bit_length()."""
+    n = int(ch1_period_ticks)
+    if n < 1:
+        n = 1
+    ph_bits = 0
+    while n:
+        ph_bits += 1
+        n >>= 1
     bits = 32 - ph_bits
     if bits < CH3_DIV_BITS_MIN:
         bits = CH3_DIV_BITS_MIN
