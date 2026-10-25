@@ -1361,10 +1361,10 @@ function drawScope() {
       const cw = W / cycles;
       // Период FC относительно периода CH1: T_fc/T_ch1 = freq/fc
       burstSpacing = cw * (S.freq / Math.max(50, S.fc));
-    } else if (S.h3 > 0) {
-      // Пропуск периодов: пачка не на каждом периоде CH1, а через S.h3
-      burstSpacing = (W / cycles) * (S.h3 + 1);
     }
+    // Пропуск периодов здесь НЕ учитываем: drawBurst уже сам пропускает
+    // пачки через skipPer. Если задать ещё и увеличенный интервал,
+    // пропуск удваивается (при H3=1 на экране выходило бы через 3).
 
     // CH3 пачки — если X2 то вторая пачка со сдвигом 50% периода CH1
     drawBurst(rowH*2, S.d3, '#00aaff', S.n3, S.ph, cycles, burstSpacing);
